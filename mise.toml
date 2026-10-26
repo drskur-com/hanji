@@ -40,6 +40,59 @@ description = "번들 만들기 (target/release/bundle: macOS .app, Windows .msi
 # 오류 1620). WiX로 만드는 `wxsmsi` 형식을 쓴다. .NET SDK가 있어야 한다(없으면 `winget install Microsoft.DotNet.SDK.8`).
 run = "cargo run --locked --release --manifest-path vendor/cargo-bundle/Cargo.toml -- bundle --release --format wxsmsi"
 
+[tasks.dmg]
+description = "macOS: .app 서명 → dmg 만들기 (target/release/bundle/osx/Writer-<버전>.dmg)"
+# MACOS_SIGN_IDENTITY가 없으면 키체인에서 첫 Developer ID Application 인증서를 쓰고, 그것도 없으면
+# ad-hoc 서명(-s -)한다. ad-hoc이면 받은 사람이 처음 한 번 시스템 설정 → 개인정보 보호 및 보안 →
+# "그래도 열기"를 눌러야 한다(서명이 없으면 Gatekeeper가 "손상됨"이라며 아예 막는다).
+# 공증하려면 "Developer ID Application" 인증서가 있어야 한다("Apple Development"는 안 된다).
+# hardened runtime(공증 필수)은 entitlement 없이는 마이크를 막는다 → resources/macos/Writer.entitlements.
+run = '''
+set -eu
+ID="${MACOS_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)}"
+if [ -z "$ID" ] || [ "$ID" = "-" ]; then
+  echo "Developer ID Application 인증서가 없어 ad-hoc 서명한다(공증 불가)." >&2
+  ID=-
+fi
+# vendor/cargo-bundle은 Cargo.lock을 커밋하지 않으므로(.gitignore) --locked를 붙이지 않는다.
+cargo run --release --manifest-path vendor/cargo-bundle/Cargo.toml -- bundle --release --format osx
+APP=target/release/bundle/osx/Writer.app
+VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+DMG=target/release/bundle/osx/Writer-$VERSION.dmg
+if [ "$ID" = "-" ]; then
+  # ad-hoc 서명에는 타임스탬프를 붙일 수 없다.
+  codesign --force --entitlements resources/macos/Writer.entitlements -s - "$APP"
+else
+  codesign --force --options runtime --timestamp --entitlements resources/macos/Writer.entitlements -s "$ID" "$APP"
+fi
+codesign --verify --strict --verbose=2 "$APP"
+# dmg 안에 Applications 바로가기를 두어 끌어다 놓아 설치하게 한다.
+STAGE=$(mktemp -d)
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+hdiutil create -volname Writer -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+rm -rf "$STAGE"
+[ "$ID" = "-" ] || codesign --force --timestamp -s "$ID" "$DMG"
+echo "$DMG"
+'''
+
+[tasks.notarize]
+description = "macOS: dmg를 공증하고 결과를 붙이기(staple) — GitHub 릴리스에 올릴 파일"
+depends = ["dmg"]
+# 처음 한 번 공증 자격 증명을 키체인에 저장해 둔다(앱 암호는 account.apple.com에서 만든다):
+#   xcrun notarytool store-credentials writer-notary --apple-id <이메일> --team-id <TEAMID>
+# 다른 이름으로 저장했다면 NOTARY_PROFILE로 지정한다.
+run = '''
+set -eu
+VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+DMG=target/release/bundle/osx/Writer-$VERSION.dmg
+codesign -dv "$DMG" 2>&1 | grep -q "Authority=Developer ID Application" || { echo "dmg가 Developer ID로 서명되지 않아 공증할 수 없다(ad-hoc 서명이면 dmg를 그대로 올린다)." >&2; exit 1; }
+xcrun notarytool submit "$DMG" --keychain-profile "${NOTARY_PROFILE:-writer-notary}" --wait
+xcrun stapler staple "$DMG"
+spctl --assess --type open --context context:primary-signature --verbose "$DMG"
+echo "업로드: gh release upload v$VERSION $DMG"
+'''
+
 [tasks.clean-cache]
 description = "sccache 통계 확인"
 run = "sccache --show-stats"
