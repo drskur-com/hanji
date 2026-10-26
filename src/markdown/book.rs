@@ -798,6 +798,25 @@ mod tests {
     }
 
     #[test]
+    fn blank_line_between_block_and_next_paragraph_counts() {
+        // 에디터에서 목록·줄 묶음 뒤 빈 줄 하나: 다음 문단과 나뉘고 빈 줄 하나가 간격으로 남는다.
+        for editor in [
+            "이전문단\n\n- 콘텐츠\n\n다음문단",
+            "이전문단\n\n1. 콘텐츠\n\n다음문단",
+            "이전문단\n\n:::\n콘텐츠\n:::\n\n다음문단",
+        ] {
+            let saved = crate::text_transform::to_markdown(editor);
+            let blocks = manuscript_blocks(&saved, true);
+            assert_eq!(blocks.len(), 5, "{saved:?}: {blocks:?}");
+            assert_eq!(blocks[0], Block::Paragraph(plain("이전문단")));
+            assert_eq!(blocks[1], Block::BlankLines(1));
+            assert!(matches!(blocks[2], Block::List { .. } | Block::Lines(_)));
+            assert_eq!(blocks[3], Block::BlankLines(1));
+            assert_eq!(blocks[4], Block::Paragraph(plain("다음문단")));
+        }
+    }
+
+    #[test]
     fn blank_lines_around_line_groups_and_fences_count() {
         // 서로 다른 두 줄 묶음(펜스) 사이의 빈 줄도 문단 경계처럼 k+1 규칙으로 저장되므로
         // 줄바꿈 유지 시 간격으로 남는다.
@@ -1093,4 +1112,3 @@ mod tests {
         );
     }
 }
-
