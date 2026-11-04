@@ -89,23 +89,25 @@ impl HanjiApp {
             // 받아쓰기(ADR-0054): 섹션이 아니라 맨 위의 줄 하나다. 녹음 중이면 빨간 점과 지난 시간을 보인다.
             let selection = Selection::Group(lib.stt.path.clone());
             let selected = current.as_ref() == Some(&selection);
-            rows.push(
-                self.library_row(
-                    cx,
-                    pal,
-                    "dictation".into(),
-                    icons::dictation(),
-                    lib.stt.name.clone().into(),
-                    None,
-                    selected,
-                    selection,
-                    0,
-                    Disclosure::None,
-                )
-                .mt_2()
-                .children(self.dictation_badge(cx, pal))
-                .into_any_element(),
-            );
+            if crate::dictation::ENABLED {
+                rows.push(
+                    self.library_row(
+                        cx,
+                        pal,
+                        "dictation".into(),
+                        icons::dictation(),
+                        lib.stt.name.clone().into(),
+                        None,
+                        selected,
+                        selection,
+                        0,
+                        Disclosure::None,
+                    )
+                    .mt_2()
+                    .children(self.dictation_badge(cx, pal))
+                    .into_any_element(),
+                );
+            }
             for section in &lib.sections {
                 let kind = section.kind;
                 let collapsed = self.collapsed_sections.contains(&kind);

@@ -324,7 +324,9 @@ fn library_sheets(library: &library::Library) -> (Vec<PathBuf>, HashMap<PathBuf,
             }
         }
     }
-    collect(&library.stt, None, &mut found);
+    if crate::dictation::ENABLED {
+        collect(&library.stt, None, &mut found);
+    }
     found.sort_by_key(|(sheet, _)| std::cmp::Reverse(sheet.modified));
     let locations = found
         .iter()

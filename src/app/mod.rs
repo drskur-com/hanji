@@ -404,7 +404,9 @@ impl HanjiApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.show_dictation(window, cx);
+        if crate::dictation::ENABLED {
+            self.show_dictation(window, cx);
+        }
     }
 
     fn on_toggle_preview(

@@ -47,20 +47,20 @@ pub(crate) fn build_menus(
         MenuItem::action(t!("menu.quit_app"), QuitApp),
     ]));
 
-    // macOS에서는 아래 Quit 추가가 빠지므로 `mut`이 쓰이지 않는다.
-    #[cfg_attr(target_os = "macos", allow(unused_mut))]
     let mut file_items = vec![
         MenuItem::action(t!("menu.new_sheet"), NewSheet),
         MenuItem::action(t!("menu.save"), SaveSheet),
         MenuItem::separator(),
         MenuItem::action(t!("menu.compile_project"), CompileProject),
         MenuItem::separator(),
-        // 녹음해 라이브러리의 STT 폴더에 받아 적는 창(ADR-0054).
-        MenuItem::action(t!("menu.dictation"), OpenDictation),
-        MenuItem::separator(),
-        MenuItem::action(t!("menu.open_library"), OpenLibrary),
-        MenuItem::action(t!("menu.close_library"), CloseLibrary),
     ];
+    if crate::dictation::ENABLED {
+        // 녹음해 라이브러리의 STT 폴더에 받아 적는 창(ADR-0054).
+        file_items.push(MenuItem::action(t!("menu.dictation"), OpenDictation));
+        file_items.push(MenuItem::separator());
+    }
+    file_items.push(MenuItem::action(t!("menu.open_library"), OpenLibrary));
+    file_items.push(MenuItem::action(t!("menu.close_library"), CloseLibrary));
     #[cfg(not(target_os = "macos"))]
     {
         file_items.push(MenuItem::separator());

@@ -972,40 +972,43 @@ impl SettingsWindow {
 
     /// 왼쪽 떠 있는 페이지 패널(메인 창의 라이브러리 패널과 같은 모양).
     fn render_page_panel(&self, cx: &mut Context<Self>, pal: Palette) -> impl IntoElement {
-        let rows = Page::ALL.into_iter().map(|page| {
-            let selected = page == self.page;
-            let (text_color, icon_color) = if selected {
-                (pal.accent_foreground, pal.accent_foreground)
-            } else {
-                (pal.foreground, pal.foreground.opacity(0.7))
-            };
-            div()
-                .id(page.id())
-                .mx_2()
-                .px_2()
-                .h(px(30.0))
-                .flex()
-                .items_center()
-                .gap_2()
-                .rounded_lg()
-                .text_sm()
-                .text_color(text_color)
-                .when(selected, |this| this.bg(pal.accent).font_semibold())
-                .when(!selected, |this| {
-                    this.hover(move |style| style.bg(pal.hover))
-                })
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.page = page;
-                    if page == Page::Dictation {
-                        this.model_store.update(cx, |store, cx| store.refresh(cx));
-                        this.load_dictation_models(window, cx);
-                    }
-                    cx.notify();
-                }))
-                .child(Icon::new(page.icon()).small().text_color(icon_color))
-                .child(page.title())
-        });
+        let rows = Page::ALL
+            .into_iter()
+            .filter(|page| *page != Page::Dictation || crate::dictation::ENABLED)
+            .map(|page| {
+                let selected = page == self.page;
+                let (text_color, icon_color) = if selected {
+                    (pal.accent_foreground, pal.accent_foreground)
+                } else {
+                    (pal.foreground, pal.foreground.opacity(0.7))
+                };
+                div()
+                    .id(page.id())
+                    .mx_2()
+                    .px_2()
+                    .h(px(30.0))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .rounded_lg()
+                    .text_sm()
+                    .text_color(text_color)
+                    .when(selected, |this| this.bg(pal.accent).font_semibold())
+                    .when(!selected, |this| {
+                        this.hover(move |style| style.bg(pal.hover))
+                    })
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.page = page;
+                        if page == Page::Dictation {
+                            this.model_store.update(cx, |store, cx| store.refresh(cx));
+                            this.load_dictation_models(window, cx);
+                        }
+                        cx.notify();
+                    }))
+                    .child(Icon::new(page.icon()).small().text_color(icon_color))
+                    .child(page.title())
+            });
 
         div().h_full().flex_shrink_0().p(px(PANEL_INSET)).child(
             div()

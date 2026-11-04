@@ -13,6 +13,10 @@
 //! 내려받기는 앱 전역 [`ModelStore`]가 맡아 설정 창을 닫아도 이어진다.
 
 #[cfg(target_os = "macos")]
+/// 받아쓰기를 화면에 보일지. 끄면 파일 메뉴의 받아쓰기, 사이드바의 받아쓰기 줄, 설정의 받아쓰기 페이지,
+/// 시트 찾기의 받아쓰기 기록이 숨는다. 코드와 라이브러리의 `STT/` 폴더는 그대로 둔다.
+pub const ENABLED: bool = false;
+
 mod apple;
 mod capture;
 mod output;
