@@ -1,4 +1,4 @@
-//! 앱 정보 대화상자: 아이콘·이름·버전·한 줄 소개·만든 사람·쓴 아이콘 팩.
+//! 앱 정보 대화상자: 아이콘·이름·버전·만든 사람·쓴 아이콘 팩.
 
 use std::sync::{Arc, LazyLock};
 
@@ -71,14 +71,6 @@ fn about_body(pal: Palette) -> Div {
                 .text_sm()
                 .text_color(pal.muted)
                 .child(t!("about.version", version = env!("CARGO_PKG_VERSION")).to_string()),
-        )
-        .child(
-            div()
-                .mt_3()
-                .text_sm()
-                .text_center()
-                .text_color(pal.foreground)
-                .child(t!("about.tagline").to_string()),
         )
         .child(
             div()
