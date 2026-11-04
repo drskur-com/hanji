@@ -16,7 +16,7 @@ pub fn read_sheet(path: &Path) -> io::Result<String> {
 
 /// 시트 본문을 원자적으로 저장하고, 저장 후의 수정 시각을 돌려준다.
 ///
-/// 같은 폴더의 숨김 임시 파일(`.<이름>.writer-tmp`)에 쓰고 디스크에 내린 뒤 바꿔치기한다.
+/// 같은 폴더의 숨김 임시 파일(`.<이름>.hanji-tmp`)에 쓰고 디스크에 내린 뒤 바꿔치기한다.
 /// 중간에 끊겨도 원래 파일은 온전하다. 임시 파일은 `.md`가 아니라 스캔에 잡히지 않는다.
 pub fn write_sheet(path: &Path, text: &str) -> io::Result<u128> {
     use std::io::Write as _;
@@ -32,7 +32,7 @@ pub fn write_sheet(path: &Path, text: &str) -> io::Result<u128> {
             t!("core.error.no_file_name").into_owned(),
         )
     })?;
-    let temp = dir.join(format!(".{}.writer-tmp", name.to_string_lossy()));
+    let temp = dir.join(format!(".{}.hanji-tmp", name.to_string_lossy()));
 
     let result = (|| {
         let mut file = std::fs::File::create(&temp)?;
@@ -86,7 +86,7 @@ mod tests {
         let modified = write_sheet(&path, "# 제목\n본문").unwrap();
         assert!(modified > 0);
         assert_eq!(read_sheet(&path).unwrap(), "# 제목\n본문");
-        assert!(!dir.join(".a.md.writer-tmp").exists());
+        assert!(!dir.join(".a.md.hanji-tmp").exists());
 
         std::fs::write(&path, "\u{feff}bom").unwrap();
         assert_eq!(read_sheet(&path).unwrap(), "bom");

@@ -10,7 +10,7 @@ use gpui_kit::gpui::*;
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::new_project::form_row;
 use super::style::*;
 use crate::{icons, library};
@@ -56,12 +56,12 @@ struct BookInfoForm {
     cover_modified: u128,
     /// 표지를 고르다 생긴 문제(지원하지 않는 형식 등).
     cover_error: Option<SharedString>,
-    app: WeakEntity<WriterApp>,
+    app: WeakEntity<HanjiApp>,
 }
 
 impl BookInfoForm {
     fn new(
-        app: WeakEntity<WriterApp>,
+        app: WeakEntity<HanjiApp>,
         project: &library::Group,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -298,7 +298,7 @@ impl Render for BookInfoForm {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 프로젝트의 책 정보 대화상자를 연다.
     pub(super) fn open_book_info(
         &mut self,

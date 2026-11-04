@@ -1,11 +1,11 @@
 ---
 name: sheet-format
-description: The exact Markdown format of Writer sheet files and the places where it differs from standard Markdown. Read this before creating or changing any sheet (.md) with create_sheet, edit_file, or write_file, so the edit does not break paragraphs, headings, images, line groups, footnotes, or tables.
+description: The exact Markdown format of Hanji sheet files and the places where it differs from standard Markdown. Read this before creating or changing any sheet (.md) with create_sheet, edit_file, or write_file, so the edit does not break paragraphs, headings, images, line groups, footnotes, or tables.
 ---
 
-# Writer sheet format
+# Hanji sheet format
 
-Sheets are Markdown (CommonMark + GFM, with frontmatter and `$` math), but Writer reads and saves them line by line with its own rules. Write files the way the app itself would save them; otherwise the app reshapes them on its next save, or the book comes out wrong.
+Sheets are Markdown (CommonMark + GFM, with frontmatter and `$` math), but Hanji reads and saves them line by line with its own rules. Write files the way the app itself would save them; otherwise the app reshapes them on its next save, or the book comes out wrong.
 
 ## Paragraphs and line breaks
 - One paragraph is one line. Separate paragraphs with exactly one blank line. Never hard-wrap a paragraph across lines: a line break inside a paragraph is joined with a space when the app opens the file.
@@ -59,7 +59,7 @@ Sheets are Markdown (CommonMark + GFM, with frontmatter and `$` math), but Write
 
 ## Files
 - Change the open sheet by default. If you propose a change to another sheet, say so in your reply.
-- Sheet file names are permanent identifiers (`<ULID>.md`), not titles. Never rename, move, or delete sheet files; the group's `.writer.toml` refers to them by name for order and gluing. Gluing lives only in `.writer.toml` (`glued`), never in the sheet text.
+- Sheet file names are permanent identifiers (`<ULID>.md`), not titles. Never rename, move, or delete sheet files; the group's `.hanji.toml` refers to them by name for order and gluing. Gluing lives only in `.hanji.toml` (`glued`), never in the sheet text.
 - Create new sheets with create_sheet, not write_file.
 - If the sheet is open in the app with unsaved changes, the app's next save overwrites your change. Changes to a sheet the user is not typing in are safe.
 

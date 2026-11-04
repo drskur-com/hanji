@@ -14,7 +14,7 @@ use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
 use super::style::*;
-use super::{Selection, WriterApp};
+use super::{HanjiApp, Selection};
 use crate::{icons, library};
 
 /// 대화상자 폭.
@@ -64,14 +64,14 @@ struct NewProjectForm {
     picker: Entity<IconPicker>,
     picker_open: bool,
     target: FormTarget,
-    app: WeakEntity<WriterApp>,
+    app: WeakEntity<HanjiApp>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl NewProjectForm {
     /// `editing`이 있으면 그 프로젝트의 이름·색·아이콘으로 채운다.
     fn new(
-        app: WeakEntity<WriterApp>,
+        app: WeakEntity<HanjiApp>,
         target: FormTarget,
         editing: Option<&library::Group>,
         window: &mut Window,
@@ -427,7 +427,7 @@ pub(super) fn form_row(
         .child(div().flex_1().min_w_0().child(control))
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// "새로운 프로젝트" 대화상자를 연다.
     pub(super) fn open_new_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_form_dialog(FormTarget::NewProject, window, cx);

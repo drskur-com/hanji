@@ -1,5 +1,5 @@
 [package]
-name = "writer"
+name = "hanji"
 version = "0.1.0"
 edition = "2024"
 
@@ -115,9 +115,9 @@ objc2-avf-audio = { version = "0.3", default-features = false, features = ["std"
 
 # `cargo bundle --release`로 .app을 만든다.
 [package.metadata.bundle]
-name = "Writer"
-identifier = "com.drskur.writer"
-icon = ["resources/icon/writer.icns", "resources/icon/writer.png"]
+name = "Hanji"
+identifier = "com.drskur.hanji"
+icon = ["resources/icon/hanji.icns", "resources/icon/hanji.png"]
 category = "public.app-category.productivity"
 
 [package.metadata.bundle.osx]

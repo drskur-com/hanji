@@ -192,7 +192,7 @@ fn runtime() -> &'static tokio::runtime::Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
-            .thread_name("writer-hf")
+            .thread_name("hanji-hf")
             .enable_all()
             .build()
             .expect("tokio 런타임을 만들 수 없습니다")
@@ -220,7 +220,7 @@ fn download(spec: &'static ModelSpec) -> (mpsc::UnboundedReceiver<Event>, AbortO
         };
         let result = async {
             let client = hf_hub::HFClient::builder()
-                .user_agent(concat!("writer/", env!("CARGO_PKG_VERSION")))
+                .user_agent(concat!("hanji/", env!("CARGO_PKG_VERSION")))
                 .build()?;
             client
                 .model(spec.owner, spec.repo)

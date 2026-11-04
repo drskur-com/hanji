@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn video_info_reads_the_video_track_and_movie_length() {
-        let dir = std::env::temp_dir().join(format!("writer-media-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-media-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut mvhd = vec![0u8; 100];
         mvhd[12..16].copy_from_slice(&1000u32.to_be_bytes());

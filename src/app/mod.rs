@@ -1,4 +1,4 @@
-//! 앱 상태(`WriterApp`)와 액션 핸들러. 화면별 렌더는 하위 모듈에 나눠 둔다.
+//! 앱 상태(`HanjiApp`)와 액션 핸들러. 화면별 렌더는 하위 모듈에 나눠 둔다.
 
 mod assistant_panel;
 mod book_info;
@@ -87,7 +87,7 @@ pub(super) enum GroupFamily {
     Project(PathBuf),
 }
 
-pub(crate) struct WriterApp {
+pub(crate) struct HanjiApp {
     /// 사이드바 1단(섹션+그룹) 표시 여부. 2단(시트 목록)은 항상 보인다.
     sidebar_visible: bool,
     /// 오른쪽 어시스턴트 패널 표시 여부.
@@ -155,7 +155,7 @@ pub(crate) struct WriterApp {
     menu_bar: Entity<AppMenuBar>,
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 앱 상태를 만들고, 라이브러리가 있으면 감시와 미리보기 읽기를 시작한다.
     pub(crate) fn new(
         library: Option<library::Library>,
@@ -184,7 +184,7 @@ impl WriterApp {
             this.close_sheet(cx);
             async {}
         });
-        let mut app = WriterApp {
+        let mut app = HanjiApp {
             sidebar_visible: true,
             assistant_visible: false,
             assistant_history: false,
@@ -670,7 +670,7 @@ impl WriterApp {
     }
 }
 
-impl Render for WriterApp {
+impl Render for HanjiApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // 테마 토큰을 값(Copy)으로 읽어 둔다. 이후 `cx.listener`와 대여 충돌이 없다.
         let pal = Palette::from_theme(cx.theme());

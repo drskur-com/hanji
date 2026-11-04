@@ -3,11 +3,11 @@
 //! 레이아웃:
 //! ```text
 //! <LibraryRoot>/
-//! ├─ .writer/library.toml          # 라이브러리 마커
-//! ├─ Notes/<Group>/.writer.toml    # 그룹 메타(아이콘·시트 순서)
+//! ├─ .hanji/library.toml          # 라이브러리 마커
+//! ├─ Notes/<Group>/.hanji.toml    # 그룹 메타(아이콘·시트 순서)
 //! │  └─ <Sheet>.md
 //! ├─ STT/<ULID>.md                 # 받아쓰기 기록(ADR-0054)
-//! └─ Projects/<Project>/.writer.toml
+//! └─ Projects/<Project>/.hanji.toml
 //!    ├─ <Sheet>.md
 //!    ├─ <Group>/…                  # 원고 그룹(하위 그룹 가능, 빌드 대상)
 //!    └─ Extras/<Group>/…           # 추가자료(빌드에서 빠짐)
@@ -54,15 +54,15 @@ use std::borrow::Cow;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use layout::{ensure_layout, has_marker, write_default_meta};
+use layout::{ensure_layout, has_marker, migrate_legacy_names, write_default_meta};
 use meta::{GroupMeta, read_group_meta};
 
 /// 라이브러리 표식 디렉터리/파일.
-pub const MARKER_DIR: &str = ".writer";
+pub const MARKER_DIR: &str = ".hanji";
 pub const MARKER_FILE: &str = "library.toml";
 
 /// 그룹 폴더 안의 메타 파일 이름.
-pub const GROUP_META_FILE: &str = ".writer.toml";
+pub const GROUP_META_FILE: &str = ".hanji.toml";
 
 /// 받아쓰기 기록(`<ULID>.md`)을 두는 라이브러리 루트의 폴더(ADR-0054). 섹션이 아니라 사이드바의
 /// "받아쓰기" 줄 하나로 보인다([`Library::stt`]).
@@ -111,7 +111,7 @@ pub fn is_reserved_group(dir: &Path) -> bool {
 pub enum SectionKind {
     /// 메모(그룹 가능, 시트는 최근 수정순).
     Notes,
-    /// 프로젝트(그룹, 시트는 `.writer.toml` 순서 → 최근 수정순).
+    /// 프로젝트(그룹, 시트는 `.hanji.toml` 순서 → 최근 수정순).
     Projects,
 }
 
@@ -244,7 +244,7 @@ pub struct Group {
     pub name: String,
     /// 그룹 디렉터리 경로.
     pub path: PathBuf,
-    /// 그룹 메타(`.writer.toml`)에 지정된 아이콘 이름(없으면 기본).
+    /// 그룹 메타(`.hanji.toml`)에 지정된 아이콘 이름(없으면 기본).
     pub icon: Option<String>,
     /// 그룹 메타에 지정된 색 이름(없으면 기본 아이콘 색).
     pub color: Option<String>,
@@ -414,7 +414,7 @@ impl Library {
     }
 }
 
-/// 그룹 메타(`.writer.toml`) 글이 앱이 읽을 수 있는 모양인지 본다. 읽는 쪽은 깨진 값을 조용히
+/// 그룹 메타(`.hanji.toml`) 글이 앱이 읽을 수 있는 모양인지 본다. 읽는 쪽은 깨진 값을 조용히
 /// 기본값으로 바꾸므로(시트 순서 등이 사라진다), 밖에서 고친 글은 쓰기 전에 이것으로 검사한다.
 /// 오류는 어시스턴트 모델이 읽고 고치므로 영어다.
 pub fn validate_group_meta(text: &str) -> Result<(), String> {
@@ -438,6 +438,7 @@ pub fn validate_group_meta(text: &str) -> Result<(), String> {
 
 /// 레이아웃과 기본 메타를 보장한 뒤 라이브러리를 스캔한다.
 pub fn open(root: &Path) -> io::Result<Library> {
+    migrate_legacy_names(root)?;
     ensure_layout(root)?;
     write_default_meta(root)?;
     scan(root)
@@ -679,7 +680,7 @@ pub(crate) mod test_util {
         // 시각만으로는 병렬 테스트끼리 겹칠 수 있다(macOS 시각은 마이크로초 단위). 순번을 더한다.
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let base = std::env::temp_dir().join(format!(
-            "writer-test-{tag}-{}-{}-{}",
+            "hanji-test-{tag}-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

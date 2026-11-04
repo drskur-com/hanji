@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn quicklook_makes_small_bgra_thumbnail() {
-        let dir = std::env::temp_dir().join(format!("writer-thumb-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-thumb-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("red.png");
         // 400×200 빨간 그림. 긴 변이 64가 되게 줄어야 한다.

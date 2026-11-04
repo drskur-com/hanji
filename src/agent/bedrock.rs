@@ -371,7 +371,7 @@ pub(super) fn runtime() -> &'static tokio::runtime::Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
-            .thread_name("writer-ai")
+            .thread_name("hanji-ai")
             .enable_all()
             .build()
             .expect("tokio 런타임을 만들 수 없습니다")
@@ -819,7 +819,7 @@ mod live_tools {
     #[test]
     #[ignore]
     fn live_tools() {
-        let root = std::env::temp_dir().join("writer-live-tools");
+        let root = std::env::temp_dir().join("hanji-live-tools");
         let _ = std::fs::remove_dir_all(&root);
         crate::library::initialize(&root).unwrap();
         crate::agent::skills::sync_builtin(&root).unwrap();

@@ -21,7 +21,7 @@ use gpui_kit::gpui::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::assistant_panel::ModelItem;
 use super::new_project::form_row;
 use super::style::*;
@@ -676,7 +676,7 @@ fn decode_oriented(path: &Path) -> Option<image::DynamicImage> {
     Some(decoded)
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// OCR 텍스트 삽입 대화상자를 연다. 열린 시트가 없으면 안내만 한다.
     pub(super) fn on_insert_ocr_text(
         &mut self,

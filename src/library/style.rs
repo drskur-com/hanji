@@ -1,4 +1,4 @@
-//! 책 스타일(본문·부/장/절 제목): 프로젝트 `.writer.toml`의 `[styles.<대상>]` 표(ADR-0009).
+//! 책 스타일(본문·부/장/절 제목): 프로젝트 `.hanji.toml`의 `[styles.<대상>]` 표(ADR-0009).
 //!
 //! 에디터 렌더링과 내보내기가 같은 값을 쓴다. 파일에는 사용자가 바꾼 값만 쓰고,
 //! 빠진 값은 대상별 기본값([`StyleTarget::defaults`])으로 채운다.
@@ -505,7 +505,7 @@ pub fn read_styles(project_dir: &Path) -> Styles {
         .unwrap_or_default()
 }
 
-/// 책 스타일을 `.writer.toml`의 `[styles]`에 쓴다. 다른 키는 그대로 두고, 비면 표를 지운다.
+/// 책 스타일을 `.hanji.toml`의 `[styles]`에 쓴다. 다른 키는 그대로 두고, 비면 표를 지운다.
 pub fn write_styles(project_dir: &Path, styles: &Styles) -> io::Result<()> {
     let styles = Styles {
         body: styles.body.rounded(),

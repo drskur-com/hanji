@@ -133,7 +133,7 @@ impl Pipeline {
         let record = Record::open(&setup.target).map_err(|err| err.to_string())?;
         let (pieces, rx) = std_mpsc::channel();
         let thread = std::thread::Builder::new()
-            .name("writer-stt-out".into())
+            .name("hanji-stt-out".into())
             .spawn(move || write_pieces(record, setup, rx, written))
             .map_err(|err| err.to_string())?;
         Ok(Self { pieces, thread })
@@ -348,7 +348,7 @@ mod tests {
     /// 문단의 소리·글이 차례대로 쓰이고, 빈 문단은 소리만 버리며, 소리 파일에는 모든 소리가 남는다.
     #[test]
     fn writes_cut_paragraphs_and_keeps_audio() {
-        let dir = std::env::temp_dir().join(format!("writer-pipeline-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-pipeline-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("a.md");
         let audio_file = dir.join(".audio").join("a.wav");

@@ -1,9 +1,9 @@
 ---
 name: settings
-description: Explain where Writer's settings live, what each value means, and how to change them, and change them on request. Use when the user asks about or wants to change group or project names, icons, and colors; sheet order, sorting, or gluing; book info (title, authors, language, cover); book styles (fonts, sizes, line spacing, alignment, heading numbers and placement); automatic input conversion; or app settings (theme, editor font, AI).
+description: Explain where Hanji's settings live, what each value means, and how to change them, and change them on request. Use when the user asks about or wants to change group or project names, icons, and colors; sheet order, sorting, or gluing; book info (title, authors, language, cover); book styles (fonts, sizes, line spacing, alignment, heading numbers and placement); automatic input conversion; or app settings (theme, editor font, AI).
 ---
 
-# Writer settings
+# Hanji settings
 
 Answer in the user's language.
 
@@ -11,15 +11,15 @@ Answer in the user's language.
 
 | What | File | How to change |
 |---|---|---|
-| Group and project settings, book info, book styles | `.writer.toml` in each group folder (for example `Projects/Novel/.writer.toml`, `Notes/Inbox/.writer.toml`) | `edit_file`. In the app: the project menu's "Book info…" (책 정보…) and "Book style…" (책 스타일…), or the group's context menu |
-| Library marker | `.writer/library.toml` | Internal app state. Do not read or change it |
+| Group and project settings, book info, book styles | `.hanji.toml` in each group folder (for example `Projects/Novel/.hanji.toml`, `Notes/Inbox/.hanji.toml`) | `edit_file`. In the app: the project menu's "Book info…" (책 정보…) and "Book style…" (책 스타일…), or the group's context menu |
+| Library marker | `.hanji/library.toml` | Internal app state. Do not read or change it |
 | Skills | `Skills/<name>/SKILL.md` and files next to it | `edit_file`; new files with `write_file` |
 | Color themes | `Themes/<name>.json` | `write_file`, `edit_file` (read the theme skill first). Built-in themes cannot be changed |
-| App settings (per machine) | macOS `~/Library/Application Support/Writer/config.toml`, Windows `%APPDATA%\Writer\config.toml`, Linux `~/.config/Writer/config.toml` | Outside the library, so the file tools cannot change it. The assistant's model: `set_model`. Anything else: tell the user to use the app's Settings window (설정) |
+| App settings (per machine) | macOS `~/Library/Application Support/Hanji/config.toml`, Windows `%APPDATA%\Hanji\config.toml`, Linux `~/.config/Hanji/config.toml` | Outside the library, so the file tools cannot change it. The assistant's model: `set_model`. Anything else: tell the user to use the app's Settings window (설정) |
 
 Library layout: `Notes/<group>/` (notes), `Projects/<project>/` (manuscripts; subfolders are manuscript groups), `Projects/<project>/Extras/` (extra material, left out of the book), `Projects/<project>/Extras/Attachments/` (attachments and the cover `cover.<ext>`). Sheet file names are permanent identifiers (`<ULID>.md`); the title shown in the app is the first line of the sheet.
 
-## Values in `.writer.toml`
+## Values in `.hanji.toml`
 
 Every value is optional; missing values use the default. Keys the app does not know are ignored.
 
@@ -66,7 +66,7 @@ For reference only. The file tools cannot change this file; except for the model
 ## How to change a setting
 
 1. Confirm what the user wants to change. If they only asked a question, answer from the above and change nothing.
-2. Pick the file. Project settings are in `Projects/<project>/.writer.toml`; group settings in that group folder's `.writer.toml`. If the project is unclear, use the open sheet's path (`<sheet path>`); if still unclear, ask.
+2. Pick the file. Project settings are in `Projects/<project>/.hanji.toml`; group settings in that group folder's `.hanji.toml`. If the project is unclear, use the open sheet's path (`<sheet path>`); if still unclear, ask.
 3. Read the current content with `read_file`.
 4. Change only the needed lines with `edit_file`. Add missing tables or keys in a sensible place. Keep other keys, tables, comments, and order as they are.
    - To reorder sheets, move file names within the `sheets` array; never invent names (check the real names with `list_files`).

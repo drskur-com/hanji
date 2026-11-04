@@ -16,7 +16,7 @@ use gpui_kit::gpui::*;
 use std::cell::Cell;
 use std::rc::Rc;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::style::Palette;
 use crate::{InsertSpecialChar, icons};
 
@@ -4540,7 +4540,7 @@ pub(crate) static SPECIAL_CHARS: &[SpecialCharItem] = &[
 
 /// 특수 문자 입력 폼 뷰.
 pub(super) struct SpecialCharForm {
-    app: WeakEntity<WriterApp>,
+    app: WeakEntity<HanjiApp>,
     target: Entity<EditorState>,
     pub(super) search: Entity<InputState>,
     category: CharCategory,
@@ -4552,7 +4552,7 @@ pub(super) struct SpecialCharForm {
 
 impl SpecialCharForm {
     pub(super) fn new(
-        app: WeakEntity<WriterApp>,
+        app: WeakEntity<HanjiApp>,
         target: Entity<EditorState>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -4902,7 +4902,7 @@ fn char_cell(
         .child(item.display)
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 특수 문자 및 이모지 삽입 대화상자를 연다. 열린 시트가 없으면 안내만 한다.
     pub(super) fn on_insert_special_char(
         &mut self,

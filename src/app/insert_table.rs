@@ -8,10 +8,10 @@ use gpui_kit::gpui::*;
 use std::cell::Cell;
 use std::rc::Rc;
 
-use super::WriterApp;
+use super::HanjiApp;
 use crate::InsertTable;
 
-impl WriterApp {
+impl HanjiApp {
     pub(super) fn on_insert_table(
         &mut self,
         _: &InsertTable,

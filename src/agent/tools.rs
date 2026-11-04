@@ -2,7 +2,7 @@
 //!
 //! - 경로는 라이브러리 루트에서의 상대 경로다. 절대 경로, `..`, 루트 밖을 가리키는 심볼릭 링크는
 //!   거부한다.
-//! - 숨김 항목(`.writer/` 등 앱 상태)은 보이지도, 읽지도, 쓰지도 않는다. 그룹 메타(`.writer.toml`)만은
+//! - 숨김 항목(`.hanji/` 등 앱 상태)은 보이지도, 읽지도, 쓰지도 않는다. 그룹 메타(`.hanji.toml`)만은
 //!   읽고 `edit_file`로 고칠 수 있다(통째로 쓰지는 못한다).
 //! - 새로 쓰기(`write_file`)는 글·설정·스크립트 파일만, 이미 있는 폴더 안에만 한다. 고치기
 //!   (`edit_file`)는 있는 UTF-8 파일이면 된다([`super::edit`]). 둘 다 원자적으로 쓴다
@@ -1525,7 +1525,7 @@ fn relative_path(path: &str) -> Result<PathBuf, String> {
     Ok(relative)
 }
 
-/// 숨김 항목이 든 경로인지. 마지막의 그룹 메타(`.writer.toml`)는 숨김으로 치지 않는다.
+/// 숨김 항목이 든 경로인지. 마지막의 그룹 메타(`.hanji.toml`)는 숨김으로 치지 않는다.
 fn is_hidden_path(path: &Path) -> bool {
     let parts: Vec<_> = path.components().collect();
     parts.iter().enumerate().any(|(ix, part)| {
@@ -1548,11 +1548,11 @@ mod tests {
 
     fn workspace() -> (Workspace, PathBuf) {
         let root = temp_dir("agent-tools");
-        std::fs::create_dir_all(root.join(".writer")).unwrap();
-        std::fs::write(root.join(".writer/library.toml"), "").unwrap();
+        std::fs::create_dir_all(root.join(".hanji")).unwrap();
+        std::fs::write(root.join(".hanji/library.toml"), "").unwrap();
         std::fs::create_dir_all(root.join("Projects/소설")).unwrap();
         std::fs::write(root.join("Projects/소설/1장.md"), "첫 장.").unwrap();
-        std::fs::write(root.join("Projects/소설/.writer.toml"), "").unwrap();
+        std::fs::write(root.join("Projects/소설/.hanji.toml"), "").unwrap();
         (Workspace::new(&root), root)
     }
 
@@ -1605,7 +1605,7 @@ mod tests {
         // 그룹 메타만은 보인다.
         assert_eq!(
             ws.call(LIST, &args(&[("path", "Projects/소설")])).text,
-            ".writer.toml\n1장.md"
+            ".hanji.toml\n1장.md"
         );
     }
 
@@ -1653,14 +1653,14 @@ mod tests {
         for path in [
             "../outside.md",
             "Projects/../../outside.md",
-            ".writer/library.toml",
+            ".hanji/library.toml",
         ] {
             let out = ws.call(READ, &args(&[("path", path)]));
             assert!(out.text.starts_with("Error:"), "{path}: {}", out.text);
         }
         let out = ws.call(
             WRITE,
-            &args(&[("path", "Projects/소설/.writer.toml"), ("content", "")]),
+            &args(&[("path", "Projects/소설/.hanji.toml"), ("content", "")]),
         );
         assert!(
             out.text
@@ -1669,7 +1669,7 @@ mod tests {
             out.text
         );
         // 다른 숨김 항목은 고칠 수도 없다.
-        let out = ws.call(EDIT, &edit_args(".writer/library.toml", "a", "b"));
+        let out = ws.call(EDIT, &edit_args(".hanji/library.toml", "a", "b"));
         assert_eq!(out.text, format!("Error: {HIDDEN}"));
     }
 
@@ -1745,7 +1745,7 @@ mod tests {
     fn creates_sheet_and_appends_to_manual_order() {
         let (ws, root) = workspace();
         std::fs::write(
-            root.join("Projects/소설/.writer.toml"),
+            root.join("Projects/소설/.hanji.toml"),
             "sheets = [\"1장.md\"]\n",
         )
         .unwrap();
@@ -1764,7 +1764,7 @@ mod tests {
             std::fs::read_to_string(root.join(created)).unwrap(),
             "# 2장\n\n둘째."
         );
-        let meta = std::fs::read_to_string(root.join("Projects/소설/.writer.toml")).unwrap();
+        let meta = std::fs::read_to_string(root.join("Projects/소설/.hanji.toml")).unwrap();
         let order: toml::Table = meta.parse().unwrap();
         let sheets: Vec<_> = order["sheets"]
             .as_array()
@@ -1777,7 +1777,7 @@ mod tests {
         // 파일 그룹과 스킬 폴더에는 시트를 만들지 않는다.
         std::fs::create_dir_all(root.join("Projects/소설/Extras/Attachments")).unwrap();
         std::fs::write(
-            root.join("Projects/소설/Extras/Attachments/.writer.toml"),
+            root.join("Projects/소설/Extras/Attachments/.hanji.toml"),
             "kind = \"files\"\n",
         )
         .unwrap();
@@ -1795,17 +1795,17 @@ mod tests {
     #[test]
     fn edits_group_meta_only_when_app_can_read_it() {
         let (ws, root) = workspace();
-        let meta = root.join("Projects/소설/.writer.toml");
+        let meta = root.join("Projects/소설/.hanji.toml");
         std::fs::write(&meta, "title = \"소설\"\nsheets = [\"1장.md\"]\n").unwrap();
         let out = ws.call(
             EDIT,
-            &edit_args("Projects/소설/.writer.toml", "\"소설\"", "\"장편\""),
+            &edit_args("Projects/소설/.hanji.toml", "\"소설\"", "\"장편\""),
         );
         assert_eq!(out.text, "Changed: line 1");
         // 시트 순서를 배열이 아닌 값으로 바꾸면 앱이 순서를 잃으므로 쓰지 않는다.
         let out = ws.call(
             EDIT,
-            &edit_args("Projects/소설/.writer.toml", "[\"1장.md\"]", "\"1장.md\""),
+            &edit_args("Projects/소설/.hanji.toml", "[\"1장.md\"]", "\"1장.md\""),
         );
         assert!(out.text.starts_with("Error: Not written."), "{}", out.text);
         assert!(
@@ -1859,7 +1859,7 @@ mod tests {
             WRITE,
             &args(&[
                 ("path", "Themes/mine.json"),
-                ("content", &theme("Writer Dark")),
+                ("content", &theme("Hanji Dark")),
             ]),
         );
         assert!(out.text.contains("built-in theme name"), "{}", out.text);

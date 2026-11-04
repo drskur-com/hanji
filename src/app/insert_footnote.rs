@@ -11,13 +11,13 @@ use gpui_kit::gpui::*;
 use std::cell::Cell;
 use std::rc::Rc;
 
-use super::WriterApp;
+use super::HanjiApp;
 use crate::InsertFootnote;
 
 /// 대화상자 폭.
 const DIALOG_WIDTH: f32 = 440.0;
 
-impl WriterApp {
+impl HanjiApp {
     /// 각주 삽입 대화상자를 연다. 열린 시트가 없으면 안내만 한다.
     pub(super) fn on_insert_footnote(
         &mut self,

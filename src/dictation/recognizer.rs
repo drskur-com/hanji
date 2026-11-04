@@ -58,7 +58,7 @@ impl SpeechRecognizer for NemotronRecognizer {
         let (event_tx, events) = mpsc::unbounded();
         let (model, setup) = (self.model.clone(), self.setup.borrow().clone());
         std::thread::Builder::new()
-            .name("writer-stt".into())
+            .name("hanji-stt".into())
             .spawn(move || run(&model, setup, audio_rx, event_tx))
             .map_err(SpeechError::recognizer)?;
         forward_events(events, sink, self.on_event.clone(), &self.started, cx);
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn create_record_writes_title_line() {
-        let dir = std::env::temp_dir().join(format!("writer-stt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-stt-{}", std::process::id()));
         let path = create_record(&dir).unwrap();
         assert!(path.extension().is_some_and(|ext| ext == "md"));
         let text = std::fs::read_to_string(&path).unwrap();
@@ -242,7 +242,7 @@ mod tests {
     /// 소리를 마이크처럼 10 ms씩 넣고, 쓴 문단과 기록 파일의 글을 돌려준다.
     fn replay(model: &str, refiner: Option<Refiner>, speech: &[i16]) -> (Vec<String>, String) {
         let dir = std::env::temp_dir().join(format!(
-            "writer-stt-real-{}-{}",
+            "hanji-stt-real-{}-{}",
             std::process::id(),
             refiner.is_some()
         ));
@@ -332,7 +332,7 @@ mod tests {
         let total = speech.len() as f64 / SAMPLE_RATE as f64;
         // Windows는 백엔드를 실행 중에 불러오는 빌드라 모델을 부르기 전에 등록해야 한다(앱 main이 하는 일).
         super::super::init_backends();
-        let dir = std::env::temp_dir().join(format!("writer-stt-timing-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-stt-timing-{}", std::process::id()));
         let target = create_record(&dir).unwrap();
         let setup = RecordingSetup {
             target,
@@ -352,7 +352,10 @@ mod tests {
         }
         drop(audio_tx);
         let events: Vec<_> = futures::executor::block_on(events.collect());
-        println!("음성 길이 {total:.1}초, 재생 벽시계 {:.1}초", started.elapsed().as_secs_f64());
+        println!(
+            "음성 길이 {total:.1}초, 재생 벽시계 {:.1}초",
+            started.elapsed().as_secs_f64()
+        );
         let mut printed = 0;
         for event in &events {
             if let WorkerEvent::Hypothesis(text) = event {
@@ -372,7 +375,11 @@ mod tests {
                 println!("실패: {reason}");
             }
             if let WorkerEvent::Written(text) = event {
-                println!("문단({}자): {}", text.chars().count(), &text[..text.len().min(120)]);
+                println!(
+                    "문단({}자): {}",
+                    text.chars().count(),
+                    &text[..text.len().min(120)]
+                );
             }
         }
         std::fs::remove_dir_all(dir).unwrap();

@@ -28,7 +28,7 @@ use std::cell::Cell;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::new_project::form_row;
 use super::style::*;
 use crate::markdown::{ImageAlign, ImageOptions};
@@ -137,7 +137,7 @@ struct InsertImageForm {
     /// 웹 이미지를 내려받는 중. 끝나면 넣고 대화상자를 닫는다.
     download: Option<Task<()>>,
     download_error: Option<SharedString>,
-    app: WeakEntity<WriterApp>,
+    app: WeakEntity<HanjiApp>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -189,7 +189,7 @@ fn kind_icon(kind: Option<MediaKind>) -> IconName {
 impl InsertImageForm {
     fn new(
         kind: Option<MediaKind>,
-        app: WeakEntity<WriterApp>,
+        app: WeakEntity<HanjiApp>,
         sheet: PathBuf,
         attachments: Option<Vec<library::FileItem>>,
         window: &mut Window,
@@ -851,7 +851,7 @@ impl Render for InsertImageForm {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 이미지 삽입 대화상자를 연다. 열린 시트가 없으면 안내만 한다.
     pub(super) fn on_insert_image(
         &mut self,

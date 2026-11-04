@@ -15,7 +15,7 @@ use crate::library::{MARKER_DIR, STT_DIR};
 /// 빈 목록이다.
 pub fn watch(root: &Path) -> notify::Result<(RecommendedWatcher, UnboundedReceiver<Vec<PathBuf>>)> {
     let (tx, rx) = unbounded();
-    // 앱 내부 상태(.writer/)와 받아쓰기 기록(STT/, 녹음 중 계속 덧붙는다)의 변경은 목록과 무관하므로 무시한다.
+    // 앱 내부 상태(.hanji/)와 받아쓰기 기록(STT/, 녹음 중 계속 덧붙는다)의 변경은 목록과 무관하므로 무시한다.
     // 이벤트 경로는 정규화된 경로(macOS: /private/var …)로 오므로 같은 형태로 비교한다.
     let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let ignored = [canonical.join(MARKER_DIR), canonical.join(STT_DIR)];
@@ -72,7 +72,7 @@ mod tests {
     fn reports_deleted_sheet_under_given_root() {
         // macOS의 임시 폴더(/var → /private/var)처럼 정규화하면 바뀌는 경로를 그대로 준다.
         // 이벤트는 정규화된 경로로 오지만, 받는 쪽에는 준 루트 아래 경로로 와야 한다.
-        let root = std::env::temp_dir().join(format!("writer-watch-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hanji-watch-{}", std::process::id()));
         let group = root.join("Notes").join("Inbox");
         std::fs::create_dir_all(&group).unwrap();
         let sheet = group.join("a.md");

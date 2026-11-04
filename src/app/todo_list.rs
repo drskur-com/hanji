@@ -10,7 +10,7 @@ use gpui_kit::gpui::prelude::{FluentBuilder as _, StatefulInteractiveElement as 
 use gpui_kit::gpui::*;
 
 use super::style::*;
-use super::{WriterApp, editor_task, sheet_list};
+use super::{HanjiApp, editor_task, sheet_list};
 use crate::markdown::Todo;
 use crate::{cache, icons, library, markdown};
 
@@ -122,7 +122,7 @@ fn short_date<'a>(date: &'a str, today: &str) -> &'a str {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 열린 라이브러리의 할 일 색인을 (다시) 만든다. 캐시를 읽고 바뀐 메모만 읽는 일은 백그라운드에서 한다.
     pub(super) fn load_todos(&mut self, cx: &mut Context<Self>) {
         self.todos = Todos::default();

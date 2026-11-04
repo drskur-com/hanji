@@ -130,7 +130,7 @@ pub(super) fn scan_files(dir: &Path, order: &[String]) -> io::Result<Vec<FileIte
     Ok(files)
 }
 
-/// 파일 그룹 안에서 파일을 `from` 위치에서 `to` 위치로 옮기고, 새 순서를 `.writer.toml`의 `files`에 쓴다.
+/// 파일 그룹 안에서 파일을 `from` 위치에서 `to` 위치로 옮기고, 새 순서를 `.hanji.toml`의 `files`에 쓴다.
 ///
 /// 범위를 벗어나면 아무것도 하지 않는다. 쓰기에 실패하면 메모리의 순서도 되돌린다.
 pub fn move_file(group: &mut Group, from: usize, to: usize) -> io::Result<()> {

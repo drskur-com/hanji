@@ -782,8 +782,14 @@ mod tests {
                         ordered: saved.contains("1."),
                         start: 1,
                         items: vec![
-                            ListItem { checked: None, blocks: vec![Block::Paragraph(plain("하나"))] },
-                            ListItem { checked: None, blocks: vec![Block::Paragraph(plain("둘"))] },
+                            ListItem {
+                                checked: None,
+                                blocks: vec![Block::Paragraph(plain("하나"))]
+                            },
+                            ListItem {
+                                checked: None,
+                                blocks: vec![Block::Paragraph(plain("둘"))]
+                            },
                         ],
                     },
                     Block::BlankLines(1),

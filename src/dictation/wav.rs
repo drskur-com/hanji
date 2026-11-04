@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn writes_and_continues_wav() {
-        let dir = std::env::temp_dir().join(format!("writer-wav-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-wav-{}", std::process::id()));
         let path = audio_path(&dir.join("01J.md")).unwrap();
         assert_eq!(path, dir.join(".audio").join("01J.wav"));
         let mut wav = WavWriter::open(&path).unwrap();

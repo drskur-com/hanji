@@ -73,7 +73,7 @@ pub fn save_to_file(
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent)?;
-    let temporary = parent.join(format!(".writer-export-{}.tmp", ulid::Ulid::generate()));
+    let temporary = parent.join(format!(".hanji-export-{}.tmp", ulid::Ulid::generate()));
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)

@@ -11,7 +11,7 @@ use std::time::Instant;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::gpui::*;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::editor_extension::{shapes_canvas, theme};
 use super::extension_painter::RasterCache;
 use super::style::Palette;
@@ -221,7 +221,7 @@ impl Render for PlayView {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 확장 `name`의 `play`를 블록 인자 `args`로 새 창에서 실행한다.
     pub(super) fn play_extension(
         &mut self,

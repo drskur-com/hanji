@@ -8,7 +8,7 @@ use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::*;
 use std::path::{Path, PathBuf};
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::book_preview::{Paper, docx_options, export_pdf};
 use super::style::*;
 use crate::export::epub;
@@ -60,7 +60,7 @@ impl CompileFormat {
 
 /// 컴파일 대화상자 뷰.
 pub struct CompileDialog {
-    app: WeakEntity<WriterApp>,
+    app: WeakEntity<HanjiApp>,
     project_dir: PathBuf,
     /// 에디터에서 열었으면 라이브러리 루트와 선택 경로로 범위를 한정한다.
     selection: Option<(PathBuf, Vec<PathBuf>)>,
@@ -76,7 +76,7 @@ pub struct CompileDialog {
 
 impl CompileDialog {
     pub fn new(
-        app: WeakEntity<WriterApp>,
+        app: WeakEntity<HanjiApp>,
         project_dir: PathBuf,
         project_name: String,
         book: library::BookMeta,
@@ -421,7 +421,7 @@ impl CompileDialog {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 프로젝트 컴파일 대화상자를 연다. 열린 시트를 먼저 저장한다.
     pub fn open_compile_dialog(&mut self, dir: &Path, window: &mut Window, cx: &mut Context<Self>) {
         if let Err(err) = self.save_open_sheet(cx) {

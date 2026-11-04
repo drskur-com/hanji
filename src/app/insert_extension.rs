@@ -17,7 +17,7 @@ use gpui_kit::component::{ActiveTheme as _, FocusableExt as _, Sizable as _, Win
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::*;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::editor_extension::{
     Frame, OnChanges, Player, Ticker, block_range, fit, interactive, scaled, shapes_canvas, theme,
 };
@@ -760,7 +760,7 @@ impl Render for ExtensionPicker {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 확장 삽입 대화상자를 연다. 열린 시트가 없으면 안내만 한다.
     pub(super) fn on_insert_extension(
         &mut self,

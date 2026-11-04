@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::editor_extension::ExtensionBlocks;
 use super::editor_image::ImageBlocks;
 use super::editor_layout::{BookLayout, PAGE_BREAK_HEIGHT};
@@ -382,7 +382,7 @@ impl Markup {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 설정 변경을 열린 에디터의 줄 배치와 표 격자에 즉시 반영한다.
     pub(super) fn refresh_editor_preferences(&mut self, cx: &mut Context<Self>) {
         let Some(editor) = &self.editor else {
@@ -616,7 +616,7 @@ impl OpenSheet {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 시트를 선택해 에디터에 연다(`None`이면 선택 해제). 열려 있던 시트는 먼저 저장한다.
     ///
     /// 저장에 실패하면 편집 내용을 잃지 않도록 시트를 바꾸지 않는다.
@@ -706,7 +706,7 @@ impl WriterApp {
         let state = cx.new(|cx| {
             let mut state = EditorState::new(window, cx)
                 .clipboard_text_transform(
-                    "com.drskur.writer.editor-text.v1",
+                    "com.drskur.hanji.editor-text.v1",
                     crate::text_transform::from_clipboard,
                 )
                 .line_number(false)

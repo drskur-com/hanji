@@ -1,10 +1,10 @@
 {
   "$schema": "https://github.com/longbridge/gpui-kit/raw/refs/heads/main/.theme-schema.json",
-  "name": "Writer",
-  "author": "writer",
+  "name": "Hanji",
+  "author": "hanji",
   "themes": [
     {
-      "name": "Writer Light",
+      "name": "Hanji Light",
       "mode": "light",
       "colors": {
         "background": "#ffffff",
@@ -138,7 +138,7 @@
       }
     },
     {
-      "name": "Writer Dark",
+      "name": "Hanji Dark",
       "mode": "dark",
       "colors": {
         "background": "#232629",

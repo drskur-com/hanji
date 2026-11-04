@@ -2,7 +2,7 @@
 //!
 //! 블록 인자를 바꾸는 `set`은 에디터 블록이 바로 쓴다(`editor_extension.rs`). 여기서는 나머지(다른 확장의 명령,
 //! 에디터에 글 넣기, 시트 열기, 메뉴)를 한다. 원고를 바꾸거나 다른 확장을 부르는 동작은 확장마다 처음 쓸 때
-//! 허락을 받고, 허락은 라이브러리의 `.writer/extensions.toml`에 둔다.
+//! 허락을 받고, 허락은 라이브러리의 `.hanji/extensions.toml`에 둔다.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -11,11 +11,11 @@ use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::gpui::*;
 
-use super::WriterApp;
+use super::HanjiApp;
 use crate::extension::{Action, CommandRef, Extension};
 use crate::{CompileProject, RunExtensionCommand, TogglePreview};
 
-/// 허락 기록 파일(`.writer/` 안).
+/// 허락 기록 파일(`.hanji/` 안).
 const GRANTS_FILE: &str = "extensions.toml";
 
 /// 확장마다 허락한 동작 이름.
@@ -57,7 +57,7 @@ fn missing_grants(root: &Path, extension: &str, actions: &[Action]) -> BTreeSet<
         .collect()
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 확장 `extension`의 블록을 눌러 받은 동작을 차례로 실행한다. 허락이 필요한 동작이 처음이면 먼저 묻고,
     /// 허락하지 않으면 아무 동작도 하지 않는다.
     pub(super) fn run_extension_actions(
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn remembers_granted_actions_per_extension() {
-        let root = std::env::temp_dir().join(format!("writer-grants-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hanji-grants-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
         let actions = vec![
             Action::Set {

@@ -12,7 +12,7 @@ use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::*;
 
-use super::super::WriterApp;
+use super::super::HanjiApp;
 use super::super::style::Palette;
 use crate::agent::dictation::{Language, SummaryRequest};
 use crate::agent::{self, Backend};
@@ -98,7 +98,7 @@ fn with_summary(body: &str, summary: &str) -> String {
     text
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 녹음을 시작할 때: 요약을 켰으면 요약 일을 연다. 지난 요약(요약 파일, 없으면 기록의 요약 구간)에서 잇는다.
     pub(super) fn start_summary_job(&mut self, record: &Path, cx: &App) {
         self.dictation_ai.summary = None;
@@ -453,7 +453,7 @@ impl WriterApp {
 }
 
 /// "요약 보기" 버튼. 누를 때마다 녹음 막대 위쪽의 요약 칸을 펼치고 접는다.
-fn summary_button(open: bool, cx: &mut Context<WriterApp>) -> Button {
+fn summary_button(open: bool, cx: &mut Context<HanjiApp>) -> Button {
     Button::new("dictation-summary-view")
         .small()
         .ghost()

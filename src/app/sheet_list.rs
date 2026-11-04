@@ -11,7 +11,7 @@ use gpui_kit::gpui::*;
 use super::library_ops::SortChange;
 use super::library_panel::menu_row;
 use super::style::*;
-use super::{GroupSort, Selection, WriterApp};
+use super::{GroupSort, HanjiApp, Selection};
 use crate::{NewSheet, icons, library};
 
 /// 시트 카드 높이(제목 한 줄 + 발췌 두 줄 + 여백). 모든 카드가 같아서
@@ -100,7 +100,7 @@ impl Render for DraggedSheet {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 시트 목록 제목 오른쪽의 정렬 버튼. 누르면 정렬 방법과(수동이 아니면) 방향을 고르고,
     /// 고른 것은 그룹 메타에 저장한다.
     fn sort_button(
@@ -573,7 +573,7 @@ impl WriterApp {
 /// - 휴지통으로 이동은 늘 보이고, 확인을 받는다.
 fn sheet_menu(
     menu: PopupMenu,
-    app: &WeakEntity<WriterApp>,
+    app: &WeakEntity<HanjiApp>,
     path: &std::path::Path,
     paths: &[std::path::PathBuf],
     group_path: Option<&std::path::Path>,

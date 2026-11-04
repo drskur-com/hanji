@@ -7,7 +7,7 @@
 //! 읽을 수 있다.
 //!
 //! 빌트인 스킬(`resources/skills/<이름>/`의 `SKILL.md`와 참고 파일)은 바이너리에 넣어 두고, 라이브러리를
-//! 열 때 `Skills/`에 깔아 준다([`sync_builtin`]). 무엇을 깔았는지는 `.writer/skills.toml`에 파일마다
+//! 열 때 `Skills/`에 깔아 준다([`sync_builtin`]). 무엇을 깔았는지는 `.hanji/skills.toml`에 파일마다
 //! 해시로 적어, 사용자가 고친 파일은 덮지 않고 지운 스킬은 다시 만들지 않는다.
 //!
 //! 모델이 읽는 글이라 스킬은 영어로 쓴다(답은 사용자의 언어로 하라고 적는다). 언어에 묶인 규칙은
@@ -78,7 +78,7 @@ const RETIRED: &[&str] = &[
     "extension/references/examples.md",
 ];
 
-/// 깐 빌트인 스킬의 기록(`.writer/skills.toml`).
+/// 깐 빌트인 스킬의 기록(`.hanji/skills.toml`).
 const RECORD_FILE: &str = "skills.toml";
 
 /// 스킬 하나.

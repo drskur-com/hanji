@@ -17,7 +17,7 @@ use super::library_panel::{Disclosure, menu_row};
 use super::new_project::FormTarget;
 use super::sheet_list::DraggedSheet;
 use super::style::*;
-use super::{Selection, WriterApp};
+use super::{HanjiApp, Selection};
 use crate::{icons, library};
 
 /// 프로젝트를 열 때의 기본 선택: 첫 원고 그룹 → 첫 추가자료 → 프로젝트 자신(바로 아래 시트).
@@ -26,7 +26,7 @@ pub(super) fn default_selection(project: &library::Group) -> Selection {
     Selection::Group(first.unwrap_or(project).path.clone())
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 사이드바를 프로젝트 화면으로 바꾼다.
     pub(super) fn enter_project(
         &mut self,
@@ -241,7 +241,7 @@ impl WriterApp {
             })
     }
 
-    /// 프로젝트 폴더 전체를 ZIP으로 묶어 `.writer` 파일 하나로 내보낸다.
+    /// 프로젝트 폴더 전체를 ZIP으로 묶어 `.hanji` 파일 하나로 내보낸다.
     fn export_project(&mut self, dir: &Path, window: &mut Window, cx: &mut Context<Self>) {
         // 지금 에디터에 보이는 내용이 파일에 있어야 한다.
         if let Err(err) = self.save_open_sheet(cx) {
@@ -253,7 +253,7 @@ impl WriterApp {
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| t!("library.project.default_name").to_string());
-        let default_name = format!("{name}.writer");
+        let default_name = format!("{name}.hanji");
         let default_dir = dir
             .parent()
             .map(Path::to_path_buf)
@@ -265,8 +265,8 @@ impl WriterApp {
             let Ok(Ok(Some(output_path))) = receiver.await else {
                 return;
             };
-            // 저장 대화상자에서 확장자를 지우거나 바꿔도 `.writer`로 맞춘다.
-            let output_path = crate::export::project::with_writer_extension(&output_path);
+            // 저장 대화상자에서 확장자를 지우거나 바꿔도 `.hanji`로 맞춘다.
+            let output_path = crate::export::project::with_hanji_extension(&output_path);
             let display_name = output_path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())

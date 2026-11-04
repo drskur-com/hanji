@@ -952,7 +952,7 @@ mod tests {
 
     #[test]
     fn measure_only_image_lines() {
-        let dir = std::env::temp_dir().join(format!("writer-editor-image-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-editor-image-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("Extras")).unwrap();
         image::RgbImage::new(200, 100)
             .save(dir.join("Extras/a.png"))

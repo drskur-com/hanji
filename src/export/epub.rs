@@ -891,7 +891,7 @@ fn save_to_file(project: &ExportProject, output_path: &Path) -> Result<(), Expor
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent)?;
-    let temporary = parent.join(format!(".writer-export-{}.tmp", ulid::Ulid::generate()));
+    let temporary = parent.join(format!(".hanji-export-{}.tmp", ulid::Ulid::generate()));
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -1531,7 +1531,7 @@ fn generate_toc_ncx(
         &project.book.title
     };
     let identifier = if project.book.identifier.is_empty() {
-        "urn:uuid:writer-book"
+        "urn:uuid:hanji-book"
     } else {
         &project.book.identifier
     };
@@ -1606,7 +1606,7 @@ fn generate_content_opf(
         &project.book.language
     };
     let identifier = if project.book.identifier.is_empty() {
-        "urn:uuid:writer-book"
+        "urn:uuid:hanji-book"
     } else {
         &project.book.identifier
     };

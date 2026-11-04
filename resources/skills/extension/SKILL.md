@@ -1,9 +1,9 @@
 ---
 name: extension
-description: Write, change, or fix a Writer extension — a Lua script in Extensions/ that draws a picture, chart, or animation inside a sheet (a ```ext block), possibly with buttons and hover, or adds a command to the Extensions menu (for example inserting today's date or transforming the selected text). Use when the user wants something drawn, animated, or clickable in the editor, a custom text command or shortcut action, or when an extension block or command shows an error.
+description: Write, change, or fix a Hanji extension — a Lua script in Extensions/ that draws a picture, chart, or animation inside a sheet (a ```ext block), possibly with buttons and hover, or adds a command to the Extensions menu (for example inserting today's date or transforming the selected text). Use when the user wants something drawn, animated, or clickable in the editor, a custom text command or shortcut action, or when an extension block or command shows an error.
 ---
 
-# Writer extensions
+# Hanji extensions
 
 An extension is one Lua (Luau) file, `Extensions/<name>.lua`, that returns a table. What the table holds decides what kind of extension it is; one file can combine kinds. A large extension can instead be a folder, `Extensions/<name>/init.lua` with modules it loads with `require` (`references/modules.md`).
 

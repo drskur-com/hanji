@@ -1,6 +1,6 @@
 //! 책 스타일 화면(에디터 자리): 대상 목록 → 대상별 편집(+미리보기), 다른 프로젝트에서 가져오기.
 //!
-//! 값을 바꾸면 바로 프로젝트 `.writer.toml`의 `[styles]`에 쓴다(ADR-0009). 에디터는 시트를 열 때
+//! 값을 바꾸면 바로 프로젝트 `.hanji.toml`의 `[styles]`에 쓴다(ADR-0009). 에디터는 시트를 열 때
 //! 스타일을 다시 읽는다.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -22,7 +22,7 @@ use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::style::*;
 use crate::icons;
 use crate::library::{self, Align, Numbering, Placement, StyleTarget, VerticalAlign};
@@ -180,11 +180,11 @@ pub(super) struct BookStyleView {
     /// 가져오기에서 고른 프로젝트.
     import_source: Option<PathBuf>,
     /// 가져올 프로젝트 목록을 라이브러리에서 읽는다.
-    app: WeakEntity<WriterApp>,
+    app: WeakEntity<HanjiApp>,
 }
 
 impl BookStyleView {
-    fn new(app: WeakEntity<WriterApp>, project: PathBuf) -> Self {
+    fn new(app: WeakEntity<HanjiApp>, project: PathBuf) -> Self {
         Self {
             styles: library::read_styles(&project),
             project,
@@ -1398,7 +1398,7 @@ impl Render for BookStyleView {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 에디터 자리에 프로젝트의 책 스타일 화면을 연다. 열린 시트는 저장하고 닫는다.
     pub(super) fn open_book_style(
         &mut self,

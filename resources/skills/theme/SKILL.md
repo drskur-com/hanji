@@ -1,15 +1,15 @@
 ---
 name: theme
-description: Create or change a color theme for the Writer app (window, panels, editor, tables, code highlighting). Use when the user wants a new theme, a theme based on a palette or another app's theme (Nord, Dracula, Solarized, Catppuccin, and so on), or wants to adjust the colors of a theme they made.
+description: Create or change a color theme for the Hanji app (window, panels, editor, tables, code highlighting). Use when the user wants a new theme, a theme based on a palette or another app's theme (Nord, Dracula, Solarized, Catppuccin, and so on), or wants to adjust the colors of a theme they made.
 ---
 
-# Writer color themes
+# Hanji color themes
 
 Answer in the user's language.
 
 ## Where themes live
 
-- Built-in themes: Writer Light, Writer Dark, Gruvbox Light, Gruvbox Dark. They are part of the app; you cannot read or change them, and no library theme may use their names.
+- Built-in themes: Hanji Light, Hanji Dark, Gruvbox Light, Gruvbox Dark. They are part of the app; you cannot read or change them, and no library theme may use their names.
 - Library themes: `Themes/<name>.json` in the library. Create one with `write_file` (the `Themes/` folder is made on approval) and change it with `edit_file`. The app reloads the folder whenever a file changes, so an approved theme appears right away.
 - The user picks a theme in Settings → General → Theme, or in the View → Theme menu. You cannot switch the theme yourself; tell the user where to pick it. Library themes are deleted from Settings (the trash button next to the theme).
 

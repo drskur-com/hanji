@@ -13,11 +13,11 @@ use std::path::{Path, PathBuf};
 use gpui_kit::component::input::EditorState;
 use gpui_kit::gpui::*;
 
-use super::{Selection, WriterApp};
+use super::{HanjiApp, Selection};
 use crate::{library, markdown};
 
 /// 에디터에 링크 열기를 단다.
-pub(super) fn install(state: &mut EditorState, app: WeakEntity<WriterApp>) {
+pub(super) fn install(state: &mut EditorState, app: WeakEntity<HanjiApp>) {
     state.set_secondary_click(move |text, offset, window, cx| {
         let Some(url) = markdown::link_at(text, offset) else {
             // 확장 블록(펼친 펜스 글)이면 블록 편집 대화상자를 연다(ADR-0033).
@@ -45,7 +45,7 @@ pub(super) fn install(state: &mut EditorState, app: WeakEntity<WriterApp>) {
     });
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 링크 주소를 연다. 상대 경로는 열린 시트의 폴더 기준이다.
     fn open_link(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
         if has_scheme(url) {

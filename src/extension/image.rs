@@ -284,7 +284,7 @@ mod tests {
     use super::*;
 
     fn library() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("writer-image-{}", ulid::Ulid::generate()));
+        let dir = std::env::temp_dir().join(format!("hanji-image-{}", ulid::Ulid::generate()));
         std::fs::create_dir_all(dir.join("Notes/Attachments")).unwrap();
         std::fs::create_dir_all(dir.join("Extensions/frame")).unwrap();
         let png = |w, h| {
@@ -336,7 +336,7 @@ mod tests {
         #[cfg(unix)]
         {
             let outside =
-                std::env::temp_dir().join(format!("writer-outside-{}.png", ulid::Ulid::generate()));
+                std::env::temp_dir().join(format!("hanji-outside-{}.png", ulid::Ulid::generate()));
             std::fs::copy(dir.join("Notes/Attachments/a.png"), &outside).unwrap();
             std::os::unix::fs::symlink(&outside, dir.join("Notes/link.png")).unwrap();
             assert!(load(&roots, "Notes/link.png").is_err());

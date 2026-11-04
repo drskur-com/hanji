@@ -8,7 +8,7 @@ use gpui_kit::gpui::*;
 use std::path::{Path, PathBuf};
 
 use super::library_panel::DraggedGroups;
-use super::{GroupFamily, Selection, WriterApp};
+use super::{GroupFamily, HanjiApp, Selection};
 use crate::{APP_NAME, NewSheet, config, library, watch};
 
 /// 정렬 메뉴에서 고른 것.
@@ -18,7 +18,7 @@ pub(super) enum SortChange {
     Descending(bool),
 }
 
-impl WriterApp {
+impl HanjiApp {
     // --- 라이브러리 폴더 설정 ---------------------------------------------
 
     /// 기본 제안 경로에 새 라이브러리를 만든다.
@@ -55,7 +55,7 @@ impl WriterApp {
             Ok(library::FolderKind::Empty) | Ok(library::FolderKind::MarkdownOnly) => {
                 self.initialize_at(path, window, cx);
             }
-            // 비어 있지 않은 폴더: 하위에 Writer/ 를 만든다 (ADR-0003 D3).
+            // 비어 있지 않은 폴더: 하위에 Hanji/ 를 만든다 (ADR-0003 D3).
             Ok(library::FolderKind::NonEmpty) => {
                 self.initialize_at(path.join(APP_NAME), window, cx);
             }

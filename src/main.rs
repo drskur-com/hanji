@@ -38,7 +38,7 @@ mod thumbnail;
 mod watch;
 mod youtube_player;
 
-use app::WriterApp;
+use app::HanjiApp;
 #[cfg(target_os = "macos")]
 use app::style::{PANEL_INSET, TOOLBAR_HEIGHT};
 use menus::install_menus;
@@ -90,7 +90,7 @@ struct RunExtensionCommand {
     index: usize,
 }
 
-const APP_NAME: &str = "Writer";
+const APP_NAME: &str = "Hanji";
 
 /// 라이브러리를 열 때 빌트인 스킬을 `Skills/`에 깔거나 새 버전으로 바꾸고, `Extensions/`를 만든다.
 /// 실패는 기록만 한다.
@@ -108,6 +108,8 @@ fn main() {
     gpui_kit::application()
         .with_assets(assets::Assets)
         .run(|cx| {
+            // 설정을 읽기 전에 예전 이름(Writer)의 설정·데이터·캐시 폴더를 옮긴다.
+            config::migrate_legacy_dirs();
             gpui_kit::init(cx);
             // 웹 주소 이미지(`img(url)`, 이미지 삽입의 내려받기)에 쓰는 HTTP 클라이언트.
             match reqwest_client::ReqwestClient::user_agent(&format!("{APP_NAME}/0.1")) {
@@ -207,7 +209,7 @@ fn main() {
             };
 
             gpui_kit::open_window(options, cx, |window, cx| {
-                cx.new(|cx| WriterApp::new(library, notice, window, cx))
+                cx.new(|cx| HanjiApp::new(library, notice, window, cx))
             })
             .expect("창 열기에 실패했습니다");
         });

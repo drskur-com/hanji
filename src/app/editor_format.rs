@@ -12,7 +12,7 @@ use std::cell::Cell;
 use std::ops::Range;
 use std::rc::Rc;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::style::{Palette, icon_button, tool_group};
 use crate::{icons, markdown};
 
@@ -105,7 +105,7 @@ fn inline_range(
     })
 }
 
-impl WriterApp {
+impl HanjiApp {
     pub(super) fn formatting_tools(&self, cx: &mut Context<Self>, pal: Palette) -> AnyElement {
         let enabled = self.editor.is_some();
         let active = |kind| {

@@ -6,13 +6,14 @@ use std::path::Path;
 
 use super::meta::{ensure_project_layout, write_group_meta_if_absent};
 use super::{
-    DEFAULT_INBOX, MARKER_DIR, MARKER_FILE, SECTIONS, SectionKind, is_group_dir, is_markdown,
+    DEFAULT_INBOX, GROUP_META_FILE, MARKER_DIR, MARKER_FILE, SECTIONS, SectionKind, is_group_dir,
+    is_markdown,
 };
 
 /// 폴더 검증 결과.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum FolderKind {
-    /// 이미 Writer 라이브러리(마커 존재).
+    /// 이미 Hanji 라이브러리(마커 존재).
     Library,
     /// 비어 있음.
     Empty,
@@ -47,9 +48,43 @@ impl fmt::Display for InspectError {
 
 impl std::error::Error for InspectError {}
 
-/// 경로가 라이브러리 표식(`.writer/library.toml`)을 가지는지.
+/// 경로가 라이브러리 표식(`.hanji/library.toml`)을 가지는지.
 pub fn has_marker(path: &Path) -> bool {
     path.join(MARKER_DIR).join(MARKER_FILE).is_file()
+}
+
+/// 앱 이름이 Writer였을 때의 라이브러리 표식 디렉터리와 그룹 메타 파일 이름.
+const LEGACY_MARKER_DIR: &str = ".writer";
+const LEGACY_GROUP_META_FILE: &str = ".writer.toml";
+
+/// 예전 이름(Writer)의 라이브러리면 그룹 메타(`.writer.toml` → `.hanji.toml`)와 표식
+/// (`.writer/` → `.hanji/`)을 지금 이름으로 옮긴다. 예전 표식이 없으면 아무것도 하지 않는다(멱등).
+///
+/// 그룹 메타를 먼저 옮기고 표식을 마지막에 옮기므로, 중간에 실패해도 다음에 열 때 이어서 옮긴다.
+pub fn migrate_legacy_names(root: &Path) -> io::Result<()> {
+    let legacy_marker = root.join(LEGACY_MARKER_DIR);
+    if !legacy_marker.join(MARKER_FILE).is_file() || root.join(MARKER_DIR).exists() {
+        return Ok(());
+    }
+    rename_legacy_group_meta(root)?;
+    std::fs::rename(legacy_marker, root.join(MARKER_DIR))
+}
+
+fn rename_legacy_group_meta(dir: &Path) -> io::Result<()> {
+    let legacy = dir.join(LEGACY_GROUP_META_FILE);
+    let current = dir.join(GROUP_META_FILE);
+    if legacy.is_file() && !current.exists() {
+        std::fs::rename(&legacy, &current)?;
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let hidden = entry.file_name().to_string_lossy().starts_with('.');
+        // 심볼릭 링크는 따라가지 않는다(라이브러리 밖으로 나가거나 순환할 수 있다).
+        if !hidden && entry.file_type()?.is_dir() {
+            rename_legacy_group_meta(&entry.path())?;
+        }
+    }
+    Ok(())
 }
 
 /// 후보 폴더를 검사해 어떤 종류인지 판정한다.
@@ -58,6 +93,7 @@ pub fn inspect(path: &Path) -> Result<FolderKind, InspectError> {
     if !meta.is_dir() {
         return Err(InspectError::NotADirectory);
     }
+    migrate_legacy_names(path).map_err(|err| InspectError::Io(err.to_string()))?;
     if has_marker(path) {
         return Ok(FolderKind::Library);
     }
@@ -133,7 +169,7 @@ pub fn ensure_layout(root: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// `.writer/library.toml` 마커를 보장한다(멱등).
+/// `.hanji/library.toml` 마커를 보장한다(멱등).
 pub(super) fn write_default_meta(root: &Path) -> io::Result<()> {
     let dir = root.join(MARKER_DIR);
     std::fs::create_dir_all(&dir)?;
@@ -146,7 +182,7 @@ pub(super) fn write_default_meta(root: &Path) -> io::Result<()> {
 
 /// 임시 파일을 만들어 실제 쓰기 가능 여부를 확인한다.
 fn is_writable(dir: &Path) -> bool {
-    let probe = dir.join(".writer-write-probe");
+    let probe = dir.join(".hanji-write-probe");
     let result = std::fs::write(&probe, b"");
     if result.is_ok() {
         let _ = std::fs::remove_file(&probe);
@@ -196,6 +232,32 @@ mod tests {
                 .is_file()
         );
         assert!(!root.join("Inbox").exists());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn inspect_renames_legacy_writer_library() {
+        let root = temp_dir("legacy-name");
+        let group = root.join("Projects").join("소설");
+        std::fs::create_dir_all(root.join(LEGACY_MARKER_DIR)).unwrap();
+        std::fs::write(root.join(LEGACY_MARKER_DIR).join(MARKER_FILE), "").unwrap();
+        std::fs::create_dir_all(group.join("Extras")).unwrap();
+        std::fs::write(group.join(LEGACY_GROUP_META_FILE), "name = \"소설\"\n").unwrap();
+        std::fs::write(group.join("Extras").join(LEGACY_GROUP_META_FILE), "").unwrap();
+
+        assert_eq!(inspect(&root).unwrap(), FolderKind::Library);
+
+        assert!(!root.join(LEGACY_MARKER_DIR).exists());
+        assert!(!group.join(LEGACY_GROUP_META_FILE).exists());
+        assert_eq!(
+            std::fs::read_to_string(group.join(GROUP_META_FILE)).unwrap(),
+            "name = \"소설\"\n"
+        );
+        assert!(group.join("Extras").join(GROUP_META_FILE).is_file());
+        // 다시 불러도 그대로다.
+        migrate_legacy_names(&root).unwrap();
+        assert!(has_marker(&root));
 
         std::fs::remove_dir_all(&root).ok();
     }

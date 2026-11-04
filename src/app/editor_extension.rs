@@ -363,7 +363,7 @@ impl ExtensionBlocks {
         &self,
         token: &InlineTokenContext,
         editor: &WeakEntity<EditorState>,
-        app: &WeakEntity<super::WriterApp>,
+        app: &WeakEntity<super::HanjiApp>,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
@@ -466,7 +466,7 @@ impl ExtensionBlocks {
         height: Pixels,
         loaded: Rc<Loaded>,
         editor: &WeakEntity<EditorState>,
-        app: &WeakEntity<super::WriterApp>,
+        app: &WeakEntity<super::HanjiApp>,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
@@ -674,7 +674,7 @@ impl ExtensionBlocks {
         row: usize,
         size: Size<Pixels>,
         editor: &WeakEntity<EditorState>,
-        app: &WeakEntity<super::WriterApp>,
+        app: &WeakEntity<super::HanjiApp>,
         window: &mut Window,
         cx: &mut App,
     ) -> Option<AnyElement> {

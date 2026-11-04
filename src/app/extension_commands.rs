@@ -5,12 +5,12 @@
 
 use gpui_kit::gpui::*;
 
-use super::WriterApp;
+use super::HanjiApp;
 use crate::RunExtensionCommand;
 use crate::extension::{self, CommandContext, Extension};
 use crate::menus::{ExtensionCommands, install_menus};
 
-impl WriterApp {
+impl HanjiApp {
     /// 확장 폴더가 바뀌었으면 명령을 다시 읽어 메뉴를 다시 설치한다. 라이브러리가 없으면 비운다.
     pub(super) fn refresh_extension_commands(&mut self, cx: &mut Context<Self>) {
         let files = self.library.as_ref().map(|lib| extension::scan(&lib.root));

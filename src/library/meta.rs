@@ -1,4 +1,4 @@
-//! 그룹 메타(`<Group>/.writer.toml`) 읽기/쓰기, 프로젝트·그룹·시트 파일 만들기와 순서 바꾸기.
+//! 그룹 메타(`<Group>/.hanji.toml`) 읽기/쓰기, 프로젝트·그룹·시트 파일 만들기와 순서 바꾸기.
 
 use std::io;
 use std::ops::Range;
@@ -9,7 +9,7 @@ use super::{
     TEMPLATES_GROUP, file_name, is_notes_dir, is_reserved_group, sheet_file_name,
 };
 
-/// 그룹 폴더의 `.writer.toml` 스키마.
+/// 그룹 폴더의 `.hanji.toml` 스키마.
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(default)]
 pub(super) struct GroupMeta {
@@ -35,7 +35,7 @@ pub(super) struct GroupMeta {
     pub(super) files: Vec<String>,
 }
 
-/// 그룹 폴더의 `.writer.toml` 을 읽는다. 없거나 깨지면 기본값.
+/// 그룹 폴더의 `.hanji.toml` 을 읽는다. 없거나 깨지면 기본값.
 pub(super) fn read_group_meta(dir: &Path) -> GroupMeta {
     std::fs::read_to_string(dir.join(GROUP_META_FILE))
         .ok()
@@ -65,7 +65,7 @@ pub(super) fn write_group_meta_if_absent(
     std::fs::write(path, text)
 }
 
-/// 그룹 안에서 시트를 `from` 위치에서 `to` 위치로 옮기고, 새 순서를 `.writer.toml`에 쓴다.
+/// 그룹 안에서 시트를 `from` 위치에서 `to` 위치로 옮기고, 새 순서를 `.hanji.toml`에 쓴다.
 ///
 /// 범위를 벗어나면 아무것도 하지 않는다. 쓰기에 실패하면 메모리의 순서도 되돌린다.
 /// 개별 시트를 옮긴다(ADR-0014). 같은 접합 안에서는 접합을 유지하고, 밖으로 빼면
@@ -416,7 +416,7 @@ fn write_sheet_order_and_glue(dir: &Path, sheets: &[Sheet]) -> io::Result<()> {
     )
 }
 
-/// 그룹의 정렬 방법을 바꾸고 `.writer.toml`의 `sort`에 쓴다. 쓰기에 실패하면 메모리 값도 그대로 둔다.
+/// 그룹의 정렬 방법을 바꾸고 `.hanji.toml`의 `sort`에 쓴다. 쓰기에 실패하면 메모리 값도 그대로 둔다.
 ///
 /// 방향은 정렬 방법마다 기본이 달라서(날짜는 최신부터, 제목은 ㄱ부터) 방법을 바꾸면 지운다.
 pub fn set_sort(group: &mut Group, mode: SortMode) -> io::Result<()> {
@@ -432,7 +432,7 @@ pub fn set_sort(group: &mut Group, mode: SortMode) -> io::Result<()> {
     Ok(())
 }
 
-/// 그룹의 정렬 방향을 바꾸고 `.writer.toml`의 `descending`에 쓴다.
+/// 그룹의 정렬 방향을 바꾸고 `.hanji.toml`의 `descending`에 쓴다.
 pub fn set_sort_descending(group: &mut Group, descending: bool) -> io::Result<()> {
     write_meta_values(
         &group.path,
@@ -442,13 +442,13 @@ pub fn set_sort_descending(group: &mut Group, descending: bool) -> io::Result<()
     Ok(())
 }
 
-/// 그룹 `.writer.toml`의 `key`(`sheets`·`groups`)를 `order`(이름 목록)로 바꾼다. 다른 키는 그대로 둔다.
+/// 그룹 `.hanji.toml`의 `key`(`sheets`·`groups`)를 `order`(이름 목록)로 바꾼다. 다른 키는 그대로 둔다.
 pub(super) fn write_meta_list(group_dir: &Path, key: &str, order: &[String]) -> io::Result<()> {
     let order = order.iter().cloned().map(toml::Value::String).collect();
     write_meta_values(group_dir, [(key, Some(toml::Value::Array(order)))])
 }
 
-/// 그룹 `.writer.toml`의 키들을 한 번에 바꾼다(`None`이면 지운다). 다른 키는 그대로 둔다.
+/// 그룹 `.hanji.toml`의 키들을 한 번에 바꾼다(`None`이면 지운다). 다른 키는 그대로 둔다.
 ///
 /// 메타 파일이 깨져 있으면 덮어쓰지 않고 오류를 돌려준다. 임시 파일에 쓴 뒤 바꿔치기한다.
 pub(super) fn write_meta_values<'a>(
@@ -476,7 +476,7 @@ pub(super) fn write_meta_values<'a>(
     std::fs::rename(&temp, &path)
 }
 
-/// `Projects/` 아래에 새 프로젝트(그룹 폴더 + `.writer.toml` + 기본 추가자료)를 만들고 경로를 돌려준다.
+/// `Projects/` 아래에 새 프로젝트(그룹 폴더 + `.hanji.toml` + 기본 추가자료)를 만들고 경로를 돌려준다.
 ///
 /// 폴더 이름은 `name`에서 경로 구분자를 뺀 것이고, 비어 있으면 "무제"다.
 /// 같은 이름이 있으면 " 2", " 3"…을 붙인다. 표시 이름은 폴더 이름과 같다.
@@ -493,7 +493,7 @@ pub fn create_project(
     Ok(dir)
 }
 
-/// 새 그룹 폴더에 아이콘·색만 담은 `.writer.toml`을 쓴다.
+/// 새 그룹 폴더에 아이콘·색만 담은 `.hanji.toml`을 쓴다.
 fn write_group_meta(dir: &Path, icon: Option<&str>, color: Option<&str>) -> io::Result<()> {
     let mut table = toml::Table::new();
     for (key, value) in [("icon", icon), ("color", color)] {
@@ -525,7 +525,7 @@ fn is_note_attachments_name(parent: &Path, base: &str) -> bool {
     base == ATTACHMENTS_GROUP && is_notes_dir(parent)
 }
 
-/// `parent` 아래에 새 그룹 폴더(+ `.writer.toml`)를 만들고 경로를 돌려준다.
+/// `parent` 아래에 새 그룹 폴더(+ `.hanji.toml`)를 만들고 경로를 돌려준다.
 ///
 /// 이름 규칙은 프로젝트와 같고, `Extras`는 추가자료 자리라, 메모의 `Attachments`는 첨부파일
 /// 자리라 피한다.
@@ -835,7 +835,7 @@ pub fn create_sheet(dir: &Path) -> io::Result<PathBuf> {
     Ok(path)
 }
 
-/// 새 시트를 그룹의 수동 순서 마지막에 붙이고 `.writer.toml`의 `sheets`에 쓴다.
+/// 새 시트를 그룹의 수동 순서 마지막에 붙이고 `.hanji.toml`의 `sheets`에 쓴다.
 ///
 /// 수동 정렬 그룹(프로젝트 원고 등)은 순서가 곧 원고 구조라서 새 시트가 늘 끝에 와야 한다.
 /// 메타에 아직 없는 시트는 최근 수정순으로 뒤에 붙으므로, 그것들을 포함한 지금 목록을 그대로

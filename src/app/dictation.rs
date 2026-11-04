@@ -20,7 +20,7 @@ use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::*;
 
 use super::style::{Palette, icon_button};
-use super::{Selection, WriterApp};
+use super::{HanjiApp, Selection};
 use crate::dictation::{
     AudioSource, Engine, EventHandler, NemotronRecognizer, RecordEvent as Event, RecordingSetup,
     Refiner, SourceInput,
@@ -59,7 +59,7 @@ struct Recording {
     started: Instant,
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 녹음 중(또는 마무리 중)인 기록 파일.
     pub(super) fn recording_path(&self) -> Option<&Path> {
         self.dictation

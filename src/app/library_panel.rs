@@ -10,7 +10,7 @@ use gpui_kit::gpui::*;
 
 use super::sheet_list::DraggedSheet;
 use super::style::*;
-use super::{GroupFamily, Selection, WriterApp};
+use super::{GroupFamily, HanjiApp, Selection};
 use crate::{icons, library};
 
 /// 그룹 줄을 끌고 있는 중. 끄는 동안 커서를 따라다니는 미리보기로도 그린다.
@@ -63,7 +63,7 @@ impl Render for DraggedGroups {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 사이드바 1단: 창 안쪽에 떠 있는 라이브러리 패널(섹션 + 그룹).
     ///
     /// 패널은 항상 그리고, 바깥 슬롯 너비만 스프링으로 0 ↔ `PANEL_SLOT_WIDTH` 사이에서 움직인다.

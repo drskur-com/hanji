@@ -251,9 +251,9 @@ pub fn paste(text: &str, same_format: bool, options: &Options) -> String {
     out
 }
 
-/// 클립보드에서 Writer 에디터 본문으로 변환한다.
+/// 클립보드에서 Hanji 에디터 본문으로 변환한다.
 ///
-/// Writer에서 복사한 본문은 이미 에디터 표현이므로 문단 구조를 그대로 둔다.
+/// Hanji에서 복사한 본문은 이미 에디터 표현이므로 문단 구조를 그대로 둔다.
 /// 외부 텍스트는 줄바꿈을 정규화한 뒤 저장용 마크다운과 같은 규칙으로 읽는다.
 pub fn from_clipboard(text: &str, same_format: bool) -> String {
     if same_format {

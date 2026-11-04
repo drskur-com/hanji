@@ -16,7 +16,7 @@ pub fn install() {
     let Some(mtm) = MainThreadMarker::new().filter(|_| !bundled) else {
         return;
     };
-    let data = NSData::with_bytes(include_bytes!("../resources/icon/writer-512.png"));
+    let data = NSData::with_bytes(include_bytes!("../resources/icon/hanji-512.png"));
     let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
         return;
     };

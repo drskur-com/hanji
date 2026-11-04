@@ -1,9 +1,9 @@
 //! 앱 설정(머신 로컬 상태) 로드/저장.
 //!
 //! 라이브러리(사용자 데이터)와 분리해 OS 설정 디렉터리에 둔다.
-//! - Windows: `%APPDATA%\Writer\config.toml`
-//! - macOS: `~/Library/Application Support/Writer/config.toml`
-//! - Linux: `~/.config/Writer/config.toml`
+//! - Windows: `%APPDATA%\Hanji\config.toml`
+//! - macOS: `~/Library/Application Support/Hanji/config.toml`
+//! - Linux: `~/.config/Hanji/config.toml`
 
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -158,21 +158,38 @@ impl Default for OcrConfig {
     }
 }
 
-/// 설정 디렉터리 (`<config_dir>/Writer`).
-pub fn config_dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join("Writer"))
+/// 앱 이름이 Writer였을 때 만든 설정·데이터·캐시 폴더(`<dir>/Writer`)를 `<dir>/Hanji`로 옮긴다.
+/// 새 폴더가 이미 있으면 건드리지 않는다. 설정을 읽기 전, 앱 시작에서 한 번 부른다.
+pub fn migrate_legacy_dirs() {
+    for base in [dirs::config_dir(), dirs::data_dir(), dirs::cache_dir()]
+        .into_iter()
+        .flatten()
+    {
+        let legacy = base.join("Writer");
+        let current = base.join("Hanji");
+        if legacy.is_dir() && !current.exists() {
+            if let Err(err) = std::fs::rename(&legacy, &current) {
+                eprintln!("예전 폴더를 옮길 수 없습니다({}): {err}", legacy.display());
+            }
+        }
+    }
 }
 
-/// 설정 파일 경로 (`<config_dir>/Writer/config.toml`).
+/// 설정 디렉터리 (`<config_dir>/Hanji`).
+pub fn config_dir() -> Option<PathBuf> {
+    dirs::config_dir().map(|dir| dir.join("Hanji"))
+}
+
+/// 설정 파일 경로 (`<config_dir>/Hanji/config.toml`).
 pub fn config_path() -> Option<PathBuf> {
     config_dir().map(|dir| dir.join("config.toml"))
 }
 
-/// 새 라이브러리를 만들 때 제안하는 기본 경로 (`~/Documents/Writer`).
+/// 새 라이브러리를 만들 때 제안하는 기본 경로 (`~/Documents/Hanji`).
 pub fn default_library_root() -> Option<PathBuf> {
     dirs::document_dir()
         .or_else(dirs::home_dir)
-        .map(|dir| dir.join("Writer"))
+        .map(|dir| dir.join("Hanji"))
 }
 
 impl Config {

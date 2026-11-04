@@ -16,7 +16,7 @@ use crate::{
 
 /// 메뉴 트리.
 ///
-/// - macOS: `Settings…`는 앱 메뉴(`Writer`)에 둔다 (Apple HIG).
+/// - macOS: `Settings…`는 앱 메뉴(`Hanji`)에 둔다 (Apple HIG).
 /// - 그 외: `Edit > Settings…`에 둔다.
 /// - `Edit > Toggle Line Group`: 선택한 줄을 줄 묶음(`:::`)으로 감싸거나 푼다(ADR-0016).
 /// - 테마 목록은 `ThemeRegistry`에서 읽어 `View > Theme`에 채운다.

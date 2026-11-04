@@ -1,7 +1,7 @@
 //! 앱 테마 정의와 전환(ADR-0047).
 //!
 //! 테마는 두 곳에서 온다.
-//! - 시스템 테마: `themes/writer.json`(바이너리에 넣는다). 지울 수 없다.
+//! - 시스템 테마: `themes/hanji.json`(바이너리에 넣는다). 지울 수 없다.
 //! - 라이브러리 테마: `<라이브러리>/Themes/*.json`. 사용자나 어시스턴트가 만들고, 설정 창에서 지운다.
 //!
 //! 두 곳 모두 gpui-component의 `ThemeSet` 스키마를 그대로 따른다. 앱 UI는 하드코딩된 색 대신
@@ -10,7 +10,7 @@
 //! ```ignore
 //! theme::register(cx);                  // 시스템 테마 등록
 //! theme::load_library(Some(root), cx);  // 라이브러리 테마 (다시) 읽기
-//! theme::choose("Writer Dark", cx);     // 적용하고 기억
+//! theme::choose("Hanji Dark", cx);     // 적용하고 기억
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ use gpui_kit::gpui::{App, Global, SharedString};
 use crate::config::Config;
 
 /// 시스템 테마 세트 (gpui-component 테마 스키마).
-const WRITER_THEMES: &str = include_str!("../themes/writer.json");
+const HANJI_THEMES: &str = include_str!("../themes/hanji.json");
 
 /// 라이브러리 루트 안의 테마 폴더.
 pub const THEMES_DIR: &str = "Themes";
@@ -31,10 +31,10 @@ pub const THEMES_DIR: &str = "Themes";
 const MAX_THEME_BYTES: u64 = 256 * 1024;
 
 /// 기본 다크 테마 이름.
-pub const DEFAULT_DARK: &str = "Writer Dark";
+pub const DEFAULT_DARK: &str = "Hanji Dark";
 
 /// 기본 라이트 테마 이름.
-pub const DEFAULT_LIGHT: &str = "Writer Light";
+pub const DEFAULT_LIGHT: &str = "Hanji Light";
 
 /// 라이브러리 테마 하나와 그 파일.
 struct LibraryTheme {
@@ -66,7 +66,7 @@ impl ThemeStore {
 
 /// 시스템 테마를 등록한다. `gpui_kit::init` 이후에 호출해야 한다.
 pub fn register(cx: &mut App) {
-    let system = match parse(WRITER_THEMES) {
+    let system = match parse(HANJI_THEMES) {
         Ok(themes) => themes.into_iter().map(Rc::new).collect(),
         Err(err) => {
             // 테마가 깨져도 앱 시작은 막지 않고 기본 테마로 계속 진행한다.
@@ -96,7 +96,7 @@ pub fn parse(content: &str) -> Result<Vec<ThemeConfig>, String> {
 
 /// 라이브러리 테마 파일 내용을 검사한다. 시스템 테마와 이름이 같으면 쓰지 않는다.
 pub fn validate_library_file(content: &str) -> Result<(), String> {
-    let system = parse(WRITER_THEMES).unwrap_or_default();
+    let system = parse(HANJI_THEMES).unwrap_or_default();
     for theme in parse(content)? {
         if system.iter().any(|builtin| builtin.name == theme.name) {
             return Err(format!(
@@ -187,13 +187,22 @@ fn read_sources(root: &Path) -> Vec<(PathBuf, String)> {
 /// 저장된 테마(`config.toml`)를 적용한다. 없으면 지금 테마를 다시 적용하고(색이 바뀌었을 수 있다),
 /// 그것도 없으면 같은 모드의 기본 테마로 간다. 저장된 이름은 바꾸지 않는다(라이브러리를 다시 열면 돌아온다).
 pub fn apply_saved(cx: &mut App) {
-    let saved = Config::load().theme;
+    let saved = Config::load().theme.map(|name| renamed_builtin(&name));
     if saved.as_deref().is_some_and(|name| set_theme(name, cx)) {
         return;
     }
     let active = active_name(cx);
     if !set_theme(&active, cx) {
         set_theme(default_for(Theme::global(cx).mode), cx);
+    }
+}
+
+/// 앱 이름이 Writer였을 때의 시스템 테마 이름을 지금 이름으로 바꾼다. 그 밖의 이름은 그대로 둔다.
+fn renamed_builtin(name: &str) -> String {
+    match name {
+        "Writer Light" => DEFAULT_LIGHT.to_string(),
+        "Writer Dark" => DEFAULT_DARK.to_string(),
+        _ => name.to_string(),
     }
 }
 
@@ -318,8 +327,8 @@ mod tests {
 
     #[test]
     fn system_themes_parse() {
-        let names: Vec<_> = parse(WRITER_THEMES)
-            .expect("themes/writer.json 파싱 실패")
+        let names: Vec<_> = parse(HANJI_THEMES)
+            .expect("themes/hanji.json 파싱 실패")
             .into_iter()
             .map(|theme| theme.name)
             .collect();
@@ -334,7 +343,7 @@ mod tests {
             format!(r#"{{"name":"x","themes":[{{"name":"{name}","mode":"dark","colors":{{}}}}]}}"#)
         };
         assert!(validate_library_file(&theme("Nord Dark")).is_ok());
-        assert!(validate_library_file(&theme("Writer Dark")).is_err());
+        assert!(validate_library_file(&theme("Hanji Dark")).is_err());
         assert!(validate_library_file(r#"{"name":"x","themes":[]}"#).is_err());
         assert!(validate_library_file("{").is_err());
     }

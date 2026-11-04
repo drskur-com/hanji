@@ -1,8 +1,8 @@
-//! 프로젝트 내보내기: 프로젝트 폴더 전체를 ZIP으로 묶어 `.writer` 파일 하나로 만든다.
+//! 프로젝트 내보내기: 프로젝트 폴더 전체를 ZIP으로 묶어 `.hanji` 파일 하나로 만든다.
 //!
 //! 압축 파일 안에는 프로젝트 폴더 자체가 아니라 그 내용이 루트부터 들어간다. 그래야 나중에
 //! 풀었을 때 `<Project>/…`가 바로 생기고, 폴더 이름을 바꿔도 안의 구조가 그대로다.
-//! 숨김 파일(`.writer.toml` 등)도 프로젝트 데이터이므로 함께 담는다.
+//! 숨김 파일(`.hanji.toml` 등)도 프로젝트 데이터이므로 함께 담는다.
 
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Seek, Write};
@@ -15,7 +15,7 @@ use super::ExportError;
 
 /// 프로젝트 폴더 전체를 ZIP으로 묶어 `output_path`에 쓴다.
 ///
-/// 쓰는 도중 실패해도 반쪽짜리 `.writer` 파일이 남지 않도록 임시 파일에 쓴 뒤 바꿔 넣는다.
+/// 쓰는 도중 실패해도 반쪽짜리 `.hanji` 파일이 남지 않도록 임시 파일에 쓴 뒤 바꿔 넣는다.
 /// 내보내는 위치가 프로젝트 폴더 안이어도 임시 파일이 아카이브에 섞이지 않는다.
 pub fn export_to_file(project_dir: &Path, output_path: &Path) -> Result<(), ExportError> {
     if !project_dir.is_dir() {
@@ -27,7 +27,7 @@ pub fn export_to_file(project_dir: &Path, output_path: &Path) -> Result<(), Expo
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     fs::create_dir_all(parent)?;
-    let temporary = parent.join(format!(".writer-export-{}.tmp", ulid::Ulid::generate()));
+    let temporary = parent.join(format!(".hanji-export-{}.tmp", ulid::Ulid::generate()));
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -133,16 +133,16 @@ fn zip_name(path: &Path) -> String {
         .join("/")
 }
 
-/// 내보낼 파일 이름에 `.writer` 확장자를 붙인다. 이미 붙어 있으면 그대로 둔다.
-pub fn with_writer_extension(path: &Path) -> PathBuf {
+/// 내보낼 파일 이름에 `.hanji` 확장자를 붙인다. 이미 붙어 있으면 그대로 둔다.
+pub fn with_hanji_extension(path: &Path) -> PathBuf {
     let has_extension = path
         .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("writer"));
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("hanji"));
     if has_extension {
         path.to_path_buf()
     } else {
         let mut name = path.as_os_str().to_os_string();
-        name.push(".writer");
+        name.push(".hanji");
         PathBuf::from(name)
     }
 }
@@ -155,7 +155,7 @@ mod tests {
 
     fn temp_dir(tag: &str) -> PathBuf {
         let base = std::env::temp_dir().join(format!(
-            "writer-export-project-{tag}-{}-{}",
+            "hanji-export-project-{tag}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -172,7 +172,7 @@ mod tests {
         let project = root.join("내 책");
         fs::create_dir_all(project.join("1부").join("빈 폴더")).unwrap();
         fs::create_dir_all(project.join("Extras").join("Attachments")).unwrap();
-        fs::write(project.join(".writer.toml"), "[book]\ntitle = \"내 책\"\n").unwrap();
+        fs::write(project.join(".hanji.toml"), "[book]\ntitle = \"내 책\"\n").unwrap();
         fs::write(project.join("1부").join("첫 장.md"), "# 첫 장\n").unwrap();
         fs::write(
             project.join("Extras").join("Attachments").join("cover.png"),
@@ -187,7 +187,7 @@ mod tests {
         let names: Vec<_> = (0..zip.len())
             .map(|index| zip.by_index(index).unwrap().name().to_string())
             .collect();
-        assert!(names.contains(&".writer.toml".to_string()));
+        assert!(names.contains(&".hanji.toml".to_string()));
         assert!(names.contains(&"1부/첫 장.md".to_string()));
         assert!(names.contains(&"1부/".to_string()));
         assert!(names.contains(&"1부/빈 폴더/".to_string()));
@@ -212,7 +212,7 @@ mod tests {
         fs::create_dir_all(&project).unwrap();
         fs::write(project.join("sheet.md"), "글").unwrap();
 
-        let output = project.join("Project.writer");
+        let output = project.join("Project.hanji");
         export_to_file(&project, &output).unwrap();
         assert!(output.is_file());
 
@@ -227,22 +227,22 @@ mod tests {
     }
 
     #[test]
-    fn writer_extension_is_added_once() {
+    fn hanji_extension_is_added_once() {
         assert_eq!(
-            with_writer_extension(Path::new("책")),
-            PathBuf::from("책.writer")
+            with_hanji_extension(Path::new("책")),
+            PathBuf::from("책.hanji")
         );
         assert_eq!(
-            with_writer_extension(Path::new("책.writer")),
-            PathBuf::from("책.writer")
+            with_hanji_extension(Path::new("책.hanji")),
+            PathBuf::from("책.hanji")
         );
         assert_eq!(
-            with_writer_extension(Path::new("책.WRITER")),
-            PathBuf::from("책.WRITER")
+            with_hanji_extension(Path::new("책.HANJI")),
+            PathBuf::from("책.HANJI")
         );
         assert_eq!(
-            with_writer_extension(Path::new("책.zip")),
-            PathBuf::from("책.zip.writer")
+            with_hanji_extension(Path::new("책.zip")),
+            PathBuf::from("책.zip.hanji")
         );
     }
 }

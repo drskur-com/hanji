@@ -48,7 +48,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// 연락처를 붙인 User-Agent. 위키미디어 등은 이것이 없는 요청을 거절한다.
 const USER_AGENT: &str = concat!(
-    "Writer/",
+    "Hanji/",
     env!("CARGO_PKG_VERSION"),
     " (+https://github.com/drskur-com/writer)"
 );

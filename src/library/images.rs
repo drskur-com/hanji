@@ -87,8 +87,8 @@ fn base_dir_of(dir: &Path) -> Option<&Path> {
 /// 어긋난 경로를 다시 찾을 시트 폴더와 그 위 폴더들(프로젝트 폴더까지).
 ///
 /// 프로젝트 폴더를 알면 거기까지 올라간다. 모르면 라이브러리 섹션(`Projects/`·`Notes/`)
-/// 바로 아래 폴더까지 올라가고, 라이브러리 밖이면 `.writer.toml`이 있는 그룹 폴더까지만 본다.
-/// 그룹 폴더에 `.writer.toml`이 꼭 있지는 않으므로 라이브러리 안에서는 그것에 기대지 않는다.
+/// 바로 아래 폴더까지 올라가고, 라이브러리 밖이면 `.hanji.toml`이 있는 그룹 폴더까지만 본다.
+/// 그룹 폴더에 `.hanji.toml`이 꼭 있지는 않으므로 라이브러리 안에서는 그것에 기대지 않는다.
 fn search_dirs<'a>(sheet_dir: &'a Path, project_dir: Option<&Path>) -> Vec<&'a Path> {
     let ancestors: Vec<&Path> = sheet_dir.ancestors().collect();
     let end = match project_dir {
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn finds_stale_parent_path_in_groups_without_meta_file() {
-        // 라이브러리 안에서는 `.writer.toml`이 없는 그룹이어도 프로젝트 폴더까지 올라간다.
+        // 라이브러리 안에서는 `.hanji.toml`이 없는 그룹이어도 프로젝트 폴더까지 올라간다.
         let root = temp_dir("images-library");
         crate::library::initialize(&root).unwrap();
         let project = root.join("Projects").join("책");

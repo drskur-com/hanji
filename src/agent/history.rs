@@ -1,7 +1,7 @@
 //! 어시스턴트 대화 기록(redb, ADR-0031).
 //!
 //! 대화는 다시 만들 수 없으므로 지워도 되는 캐시(`crate::cache`)와 따로, 동기화하지 않는 OS 데이터 폴더
-//! (`<data_dir>/Writer/<라이브러리 키>/conversations.redb`)에 둔다. 깨졌어도 지우지 않는다.
+//! (`<data_dir>/Hanji/<라이브러리 키>/conversations.redb`)에 둔다. 깨졌어도 지우지 않는다.
 //! 기록 목록은 요약(`META`)만 읽고, 말(`TURNS`)은 대화를 열 때 읽는다. 말은 대화마다 순번을 키로 두어
 //! 답이 끝날 때 바뀐 말만 쓴다.
 
@@ -204,7 +204,7 @@ fn history_path(library_root: &Path) -> Option<PathBuf> {
         .unwrap_or_else(|_| library_root.to_path_buf());
     Some(
         dirs::data_dir()?
-            .join("Writer")
+            .join("Hanji")
             .join(crate::cache::library_key(&root))
             .join(FILE_NAME),
     )
@@ -243,8 +243,7 @@ mod tests {
     }
 
     fn open(name: &str) -> (History, PathBuf) {
-        let dir =
-            std::env::temp_dir().join(format!("writer-history-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-history-{}-{name}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         let history = History::open_at(&dir.join(FILE_NAME)).unwrap();
         (history, dir)

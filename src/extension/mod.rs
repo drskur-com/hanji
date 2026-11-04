@@ -1683,7 +1683,7 @@ return {
     #[test]
     fn draws_gif_frames_by_time() {
         use ::image::codecs::gif::{GifEncoder, Repeat};
-        let root = std::env::temp_dir().join(format!("writer-gif-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hanji-gif-{}", std::process::id()));
         std::fs::create_dir_all(root.join("Notes")).unwrap();
         std::fs::create_dir_all(root.join(EXTENSIONS_DIR)).unwrap();
         // 빨강(0.1초) → 초록(0.2초) → 파랑(0.3초), 무한 반복.
@@ -1756,7 +1756,7 @@ return {
 
     #[test]
     fn draws_library_images_with_quads() {
-        let root = std::env::temp_dir().join(format!("writer-images-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hanji-images-{}", std::process::id()));
         std::fs::create_dir_all(root.join("Notes/Attachments")).unwrap();
         std::fs::create_dir_all(root.join(EXTENSIONS_DIR)).unwrap();
         // 왼쪽 반은 빨강, 오른쪽 반은 파랑인 4×2 그림.
@@ -2247,7 +2247,7 @@ return {
 
     #[test]
     fn folder_extensions_require_their_modules() {
-        let root = std::env::temp_dir().join(format!("writer-package-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hanji-package-{}", std::process::id()));
         let dir = root.join(EXTENSIONS_DIR).join("game");
         std::fs::create_dir_all(dir.join("ui")).unwrap();
         std::fs::write(
@@ -2306,7 +2306,7 @@ return {
 
     #[test]
     fn exports_inline_values_as_text() {
-        let root = std::env::temp_dir().join(format!("writer-inline-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hanji-inline-{}", std::process::id()));
         std::fs::create_dir_all(root.join(EXTENSIONS_DIR)).unwrap();
         std::fs::write(
             path(&root, "greet"),
@@ -2381,7 +2381,7 @@ return {
         assert_eq!(export_arg(&block), Some(false));
         assert_eq!(export_arg(&args(&[("export", "maybe")])), None);
 
-        let root = std::env::temp_dir().join(format!("writer-export-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("hanji-export-{}", std::process::id()));
         std::fs::create_dir_all(root.join(EXTENSIONS_DIR)).unwrap();
         let dot = "return { size = { 10, 10 }, draw = function(g) g.circle('fill', 5, 5, 2) end }";
         std::fs::write(path(&root, "dot"), dot).unwrap();

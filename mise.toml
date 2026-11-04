@@ -35,18 +35,18 @@ run = "cargo build"
 description = "번들 만들기 (target/release/bundle: macOS .app, Windows .msi·.exe)"
 # crates.io의 cargo-bundle 대신 vendor/cargo-bundle 사본을 그대로 빌드해 쓴다(Windows 쪽 패치 포함).
 # cargo-bundle은 현재 디렉터리의 Cargo.toml을 대상으로 삼으므로 실행 위치는 저장소 루트다.
-# 앞쪽 `--release`는 cargo-bundle 자체를, `bundle` 뒤쪽 `--release`는 번들할 Writer를 릴리스로 빌드한다.
+# 앞쪽 `--release`는 cargo-bundle 자체를, `bundle` 뒤쪽 `--release`는 번들할 Hanji를 릴리스로 빌드한다.
 # Windows 기본 형식 `msi`(msi 크레이트로 직접 만든다)는 Windows Installer가 열지 못한다(0x80004005,
 # 오류 1620). WiX로 만드는 `wxsmsi` 형식을 쓴다. .NET SDK가 있어야 한다(없으면 `winget install Microsoft.DotNet.SDK.8`).
 run = "cargo run --locked --release --manifest-path vendor/cargo-bundle/Cargo.toml -- bundle --release --format wxsmsi"
 
 [tasks.dmg]
-description = "macOS: .app 서명 → dmg 만들기 (target/release/bundle/osx/Writer-<버전>.dmg)"
+description = "macOS: .app 서명 → dmg 만들기 (target/release/bundle/osx/Hanji-<버전>.dmg)"
 # MACOS_SIGN_IDENTITY가 없으면 키체인에서 첫 Developer ID Application 인증서를 쓰고, 그것도 없으면
 # ad-hoc 서명(-s -)한다. ad-hoc이면 받은 사람이 처음 한 번 시스템 설정 → 개인정보 보호 및 보안 →
 # "그래도 열기"를 눌러야 한다(서명이 없으면 Gatekeeper가 "손상됨"이라며 아예 막는다).
 # 공증하려면 "Developer ID Application" 인증서가 있어야 한다("Apple Development"는 안 된다).
-# hardened runtime(공증 필수)은 entitlement 없이는 마이크를 막는다 → resources/macos/Writer.entitlements.
+# hardened runtime(공증 필수)은 entitlement 없이는 마이크를 막는다 → resources/macos/Hanji.entitlements.
 run = '''
 set -eu
 ID="${MACOS_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)}"
@@ -56,21 +56,21 @@ if [ -z "$ID" ] || [ "$ID" = "-" ]; then
 fi
 # vendor/cargo-bundle은 Cargo.lock을 커밋하지 않으므로(.gitignore) --locked를 붙이지 않는다.
 cargo run --release --manifest-path vendor/cargo-bundle/Cargo.toml -- bundle --release --format osx
-APP=target/release/bundle/osx/Writer.app
+APP=target/release/bundle/osx/Hanji.app
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
-DMG=target/release/bundle/osx/Writer-$VERSION.dmg
+DMG=target/release/bundle/osx/Hanji-$VERSION.dmg
 if [ "$ID" = "-" ]; then
   # ad-hoc 서명에는 타임스탬프를 붙일 수 없다.
-  codesign --force --entitlements resources/macos/Writer.entitlements -s - "$APP"
+  codesign --force --entitlements resources/macos/Hanji.entitlements -s - "$APP"
 else
-  codesign --force --options runtime --timestamp --entitlements resources/macos/Writer.entitlements -s "$ID" "$APP"
+  codesign --force --options runtime --timestamp --entitlements resources/macos/Hanji.entitlements -s "$ID" "$APP"
 fi
 codesign --verify --strict --verbose=2 "$APP"
 # dmg 안에 Applications 바로가기를 두어 끌어다 놓아 설치하게 한다.
 STAGE=$(mktemp -d)
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname Writer -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+hdiutil create -volname Hanji -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 rm -rf "$STAGE"
 [ "$ID" = "-" ] || codesign --force --timestamp -s "$ID" "$DMG"
 echo "$DMG"
@@ -86,7 +86,7 @@ depends = ["dmg"]
 run = '''
 set -eu
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
-DMG=target/release/bundle/osx/Writer-$VERSION.dmg
+DMG=target/release/bundle/osx/Hanji-$VERSION.dmg
 codesign -dvv "$DMG" 2>&1 | grep -q "Authority=Developer ID Application" || { echo "dmg가 Developer ID로 서명되지 않아 공증할 수 없다(ad-hoc 서명이면 dmg를 그대로 올린다)." >&2; exit 1; }
 xcrun notarytool submit "$DMG" --keychain-profile "${NOTARY_PROFILE:-TT-notary}" --wait
 xcrun stapler staple "$DMG"

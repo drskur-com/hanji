@@ -5,11 +5,11 @@ use gpui_kit::component::*;
 use gpui_kit::gpui::prelude::FluentBuilder;
 use gpui_kit::gpui::*;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::style::*;
 use crate::{APP_NAME, config};
 
-impl WriterApp {
+impl HanjiApp {
     /// 라이브러리가 없을 때의 온보딩 화면.
     pub(super) fn render_onboarding(
         &self,

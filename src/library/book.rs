@@ -1,4 +1,4 @@
-//! 책 정보(제목·지은이·언어·소개·표지): 프로젝트 `.writer.toml`의 `[book]` 표.
+//! 책 정보(제목·지은이·언어·소개·표지): 프로젝트 `.hanji.toml`의 `[book]` 표.
 //!
 //! ePub(OPF)·DOCX(`core.xml`)·PDF·HTML 내보내기가 같은 값을 형식에 맞게 옮겨 쓴다.
 //! 첨부 파일은 `<Project>/Extras/Attachments/`에 두고 프로젝트 기준 상대 경로로 가리킨다.
@@ -57,7 +57,7 @@ pub fn read_book(project_dir: &Path) -> BookMeta {
         .unwrap_or_default()
 }
 
-/// 책 정보를 `.writer.toml`의 `[book]`에 쓴다. 다른 키는 그대로 둔다.
+/// 책 정보를 `.hanji.toml`의 `[book]`에 쓴다. 다른 키는 그대로 둔다.
 ///
 /// 식별자가 없으면 새로 만들어 `book`에도 채운다.
 pub fn write_book(project_dir: &Path, book: &mut BookMeta) -> io::Result<()> {

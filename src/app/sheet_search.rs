@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::sheet_list::sheet_label;
 use super::style::Palette;
 use crate::{SearchSheets, icons, library};
@@ -39,7 +39,7 @@ struct Row {
 
 /// 시트 검색 폼 뷰.
 pub(super) struct SheetSearch {
-    app: WeakEntity<WriterApp>,
+    app: WeakEntity<HanjiApp>,
     input: Entity<InputState>,
     /// 찾을 시트(최근 수정순).
     sheets: Arc<Vec<PathBuf>>,
@@ -58,7 +58,7 @@ pub(super) struct SheetSearch {
 
 impl SheetSearch {
     fn new(
-        app: WeakEntity<WriterApp>,
+        app: WeakEntity<HanjiApp>,
         library: &library::Library,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -336,7 +336,7 @@ fn library_sheets(library: &library::Library) -> (Vec<PathBuf>, HashMap<PathBuf,
     )
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 시트 검색 대화상자를 연다. 라이브러리가 없으면 열지 않는다.
     pub(super) fn on_search_sheets(
         &mut self,

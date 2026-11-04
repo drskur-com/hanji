@@ -18,7 +18,7 @@ use gpui_kit::component::*;
 use gpui_kit::gpui::prelude::FluentBuilder;
 use gpui_kit::gpui::*;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::style::*;
 use crate::{agent, icons};
 
@@ -83,7 +83,7 @@ impl SearchableListItem for ModelItem {
 }
 
 impl LiveChat {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<WriterApp>) -> Self {
+    pub(super) fn new(window: &mut Window, cx: &mut Context<HanjiApp>) -> Self {
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 6)
@@ -211,7 +211,7 @@ const SUGGESTIONS: &[&str] = &[
 /// 패널 폭.
 const ASSISTANT_PANEL_WIDTH: f32 = 360.0;
 
-impl WriterApp {
+impl HanjiApp {
     /// 어시스턴트 패널이 보이는지.
     pub(super) fn assistant_open(&self) -> bool {
         self.assistant_visible
@@ -428,7 +428,7 @@ impl WriterApp {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 대화 기록 화면. 기간(오늘·어제·지난 7일·이전)으로 묶고, 줄마다 제목·시각·마지막 말을 보인다.
     /// 줄을 누르면 그 대화를 다시 열어 이어 간다. 시트를 열었으면 그 시트의 대화만 볼 수 있다.
     fn render_assistant_history(&self, cx: &mut Context<Self>, pal: Palette) -> impl IntoElement {
@@ -614,7 +614,7 @@ impl WriterApp {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 빈 대화. AI를 설정했으면 열린 시트를 두고 물을 수 있다는 안내와 질문 예시를, 아니면
     /// 설정 창을 여는 버튼을 보인다.
     fn render_assistant_empty(
@@ -745,7 +745,7 @@ impl WriterApp {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 새 대화에 사용자 말을 더하고 모델에 보낸다. 답은 받는 대로 마지막 어시스턴트 답에 붙인다.
     /// 답을 받는 중이거나 빈 말이면 아무것도 하지 않는다.
     pub(super) fn send_assistant_message(
@@ -1197,7 +1197,7 @@ impl WriterApp {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 어시스턴트 답: 한 일(도구 줄, 승인 카드)과 글.
     fn render_reply(
         &self,
@@ -1277,7 +1277,7 @@ fn change_card(
     card: &agent::ChangeCard,
     waiting: bool,
     scroll: &ScrollHandle,
-    cx: &mut Context<WriterApp>,
+    cx: &mut Context<HanjiApp>,
     pal: Palette,
 ) -> AnyElement {
     let id = card.id as usize;
@@ -1295,7 +1295,7 @@ fn change_card(
     };
     let card_id = card.id;
     let decide = |approve: bool| {
-        cx.listener(move |this: &mut WriterApp, _: &ClickEvent, window, cx| {
+        cx.listener(move |this: &mut HanjiApp, _: &ClickEvent, window, cx| {
             // 보낸 뒤 에디터에서 고친 글을 먼저 저장한다. 그래야 모델이 읽은 뒤 시트가 바뀌었으면
             // 쓰기가 멈추고, 저장하지 않은 변경이 모델이 쓴 내용을 덮어쓰지 않는다.
             if approve && let Err(err) = this.save_open_sheet(cx) {
@@ -1384,7 +1384,7 @@ fn change_card(
 fn fetch_card(
     card: &agent::FetchCard,
     waiting: bool,
-    cx: &mut Context<WriterApp>,
+    cx: &mut Context<HanjiApp>,
     pal: Palette,
 ) -> AnyElement {
     let id = card.id as usize;
@@ -1397,7 +1397,7 @@ fn fetch_card(
     };
     let card_id = card.id;
     let decide = |approve: bool| {
-        cx.listener(move |this: &mut WriterApp, _: &ClickEvent, _, cx| {
+        cx.listener(move |this: &mut HanjiApp, _: &ClickEvent, _, cx| {
             this.assistant_chat.conversation.decide(card_id, approve);
             cx.notify();
         })

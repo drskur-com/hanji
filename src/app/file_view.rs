@@ -13,7 +13,7 @@ use gpui_kit::gpui::prelude::{
 use gpui_kit::gpui::*;
 use std::path::{Path, PathBuf};
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::editor::EDITOR_MAX_WIDTH;
 use super::library_panel::menu_row;
 use super::sheet_list::DraggedSheet;
@@ -81,7 +81,7 @@ fn is_cover(file: &library::FileItem) -> bool {
         .is_some_and(|stem| stem == library::COVER_STEM)
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 파일을 뷰어로 연다. 열려 있던 시트는 저장하고 닫는다.
     pub(super) fn select_file(
         &mut self,

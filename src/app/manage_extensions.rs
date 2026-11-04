@@ -14,7 +14,7 @@ use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::*;
 
-use super::WriterApp;
+use super::HanjiApp;
 use super::editor_extension::{Player, Ticker};
 use super::insert_extension::render_preview;
 use super::style::Palette;
@@ -64,7 +64,7 @@ impl Item {
 /// 확장 목록, 고른 것, 사용처 수.
 struct ExtensionManager {
     root: PathBuf,
-    app: WeakEntity<WriterApp>,
+    app: WeakEntity<HanjiApp>,
     host: Host,
     items: Vec<Item>,
     selected: usize,
@@ -80,7 +80,7 @@ impl ExtensionManager {
     fn new(
         root: &Path,
         sheets: Vec<PathBuf>,
-        app: WeakEntity<WriterApp>,
+        app: WeakEntity<HanjiApp>,
         cx: &mut Context<Self>,
     ) -> Self {
         let count = cx.spawn(async move |this, cx| {
@@ -398,7 +398,7 @@ impl Render for ExtensionManager {
     }
 }
 
-impl WriterApp {
+impl HanjiApp {
     /// 확장 관리 대화상자를 연다.
     pub(super) fn on_manage_extensions(
         &mut self,

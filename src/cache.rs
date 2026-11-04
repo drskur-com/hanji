@@ -1,7 +1,7 @@
 //! 라이브러리별 로컬 캐시(redb, ADR-0024).
 //!
 //! 원문에서 다시 만들 수 있는 파생 데이터만 둔다. 동기화하지 않도록 라이브러리 폴더가 아니라 OS 캐시 폴더
-//! (`<cache_dir>/Writer/<라이브러리 키>/cache.redb`)에 두고, 지워지거나 깨지면 새로 만든다.
+//! (`<cache_dir>/Hanji/<라이브러리 키>/cache.redb`)에 두고, 지워지거나 깨지면 새로 만든다.
 //! 쓰는 곳마다 자기 테이블을 정의한다(예: `library::TodoIndex`).
 
 use std::path::{Path, PathBuf};
@@ -47,7 +47,7 @@ fn cache_path(library_root: &Path) -> Option<PathBuf> {
         .unwrap_or_else(|_| library_root.to_path_buf());
     Some(
         dirs::cache_dir()?
-            .join("Writer")
+            .join("Hanji")
             .join(library_key(&root))
             .join(FILE_NAME),
     )
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn broken_cache_file_is_replaced() {
-        let dir = std::env::temp_dir().join(format!("writer-cache-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-cache-{}", std::process::id()));
         let path = dir.join("broken").join(FILE_NAME);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"not a database").unwrap();

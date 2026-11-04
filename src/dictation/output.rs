@@ -63,7 +63,7 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("writer-stt-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-stt-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("a.md")
     }

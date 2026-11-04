@@ -1118,7 +1118,7 @@ mod tests {
 
     #[test]
     fn videos_become_posters_and_media_files_are_attached() {
-        let dir = std::env::temp_dir().join(format!("writer-pdf-media-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hanji-pdf-media-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let video = dir.join("clip.mp4");
         let audio = dir.join("song.mp3");

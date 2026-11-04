@@ -36,7 +36,7 @@ mod macos {
     const HEIGHT: f64 = 540.0;
 
     /// YouTube는 임베드 플레이어를 부른 곳(Referer)을 요구한다. 앱은 번들 ID를 주소 꼴로 보낸다.
-    const ORIGIN: &str = "https://com.drskur.writer";
+    const ORIGIN: &str = "https://com.drskur.hanji";
 
     /// 열린 플레이어 창.
     struct Player {
