@@ -79,15 +79,16 @@ echo "$DMG"
 [tasks.notarize]
 description = "macOS: dmg를 공증하고 결과를 붙이기(staple) — GitHub 릴리스에 올릴 파일"
 depends = ["dmg"]
-# 처음 한 번 공증 자격 증명을 키체인에 저장해 둔다(앱 암호는 account.apple.com에서 만든다):
-#   xcrun notarytool store-credentials writer-notary --apple-id <이메일> --team-id <TEAMID>
+# 공증 자격 증명은 앱이 아니라 Apple ID·팀 단위라 TT(../et)에서 저장해 둔 TT-notary 프로필을 같이 쓴다.
+# 새 Mac이면 처음 한 번 키체인에 저장한다(앱 암호는 account.apple.com에서 만든다):
+#   xcrun notarytool store-credentials TT-notary --apple-id drskur@gmail.com --team-id 2QMQ85P9Y6
 # 다른 이름으로 저장했다면 NOTARY_PROFILE로 지정한다.
 run = '''
 set -eu
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 DMG=target/release/bundle/osx/Writer-$VERSION.dmg
-codesign -dv "$DMG" 2>&1 | grep -q "Authority=Developer ID Application" || { echo "dmg가 Developer ID로 서명되지 않아 공증할 수 없다(ad-hoc 서명이면 dmg를 그대로 올린다)." >&2; exit 1; }
-xcrun notarytool submit "$DMG" --keychain-profile "${NOTARY_PROFILE:-writer-notary}" --wait
+codesign -dvv "$DMG" 2>&1 | grep -q "Authority=Developer ID Application" || { echo "dmg가 Developer ID로 서명되지 않아 공증할 수 없다(ad-hoc 서명이면 dmg를 그대로 올린다)." >&2; exit 1; }
+xcrun notarytool submit "$DMG" --keychain-profile "${NOTARY_PROFILE:-TT-notary}" --wait
 xcrun stapler staple "$DMG"
 spctl --assess --type open --context context:primary-signature --verbose "$DMG"
 echo "업로드: gh release upload v$VERSION $DMG"
