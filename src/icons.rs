@@ -341,15 +341,6 @@ pub fn search() -> IconName {
     IconName::Search
 }
 
-/// 서식: 굵게/기울임/링크/문단.
-pub fn bold() -> IconName {
-    IconName::Bold
-}
-
-pub fn italic() -> IconName {
-    IconName::Italic
-}
-
 pub fn link() -> IconName {
     IconName::Link
 }
@@ -368,24 +359,9 @@ pub fn paragraph() -> IconName {
     IconName::Pilcrow
 }
 
-/// 문단 서식: 순서없는 목록.
-pub fn bullet_list() -> IconName {
-    IconName::List
-}
-
-/// 문단 서식: 순서있는 목록.
-pub fn numbered_list() -> IconName {
-    IconName::ListOrdered
-}
-
 /// 에디터 할 일 항목: 완료한 체크 상자 안 표시.
 pub fn task_done() -> IconName {
     IconName::Check
-}
-
-/// 문단 서식: 블록 인용.
-pub fn quote() -> IconName {
-    IconName::TextQuote
 }
 
 pub fn export() -> IconName {

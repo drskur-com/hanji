@@ -452,7 +452,7 @@ impl HanjiApp {
             Some(file) => this.child(self.file_actions(file, pal)),
             // 책 스타일 화면에는 편집 도구가 없다.
             None if self.book_style.is_some() => this,
-            None => this.child(self.formatting_tools(cx, pal)).child(
+            None => this.child(
                 tool_group(pal)
                     .child(
                         icon_button(
@@ -590,10 +590,6 @@ impl OpenSheet {
     /// 편집 상태(본문·커서).
     pub(super) fn state(&self) -> &Entity<EditorState> {
         &self.state
-    }
-
-    pub(super) fn has_book_styles(&self) -> bool {
-        self.styles.is_some()
     }
 
     /// 본문을 `text`(파일에서 다시 읽은 글)로 바꾸고 단어 수·줄 묶음·표·마크업을 다시 맞춘다. 프로그램으로 바꾼

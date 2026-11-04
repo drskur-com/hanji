@@ -1,20 +1,16 @@
-//! 우측 편집 도구: Markdown 원문을 바꾸어 에디터의 기존 렌더링에 반영한다.
+//! 서식 메뉴의 편집 도구(굵게·기울임·링크·문단 형식): Markdown 원문을 바꾸어 에디터의 기존 렌더링에 반영한다.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::DialogFooter;
 use gpui_kit::component::input::{EditorState, Input, InputState};
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{FocusableExt as _, Icon, Side, WindowExt as _};
-use gpui_kit::gpui::prelude::FluentBuilder as _;
+use gpui_kit::component::{FocusableExt as _, WindowExt as _};
 use gpui_kit::gpui::*;
 use std::cell::Cell;
 use std::ops::Range;
 use std::rc::Rc;
 
 use super::HanjiApp;
-use super::style::{Palette, icon_button, tool_group};
-use crate::{icons, markdown};
+use crate::markdown;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BlockFormat {
@@ -23,26 +19,6 @@ enum BlockFormat {
     Bullet,
     Numbered,
     Quote,
-}
-
-#[cfg(target_os = "macos")]
-fn bold_shortcut() -> String {
-    t!("editor.format.bold_tooltip", shortcut = "⌘B").into()
-}
-
-#[cfg(not(target_os = "macos"))]
-fn bold_shortcut() -> String {
-    t!("editor.format.bold_tooltip", shortcut = "Ctrl+B").into()
-}
-
-#[cfg(target_os = "macos")]
-fn italic_shortcut() -> String {
-    t!("editor.format.italic_tooltip", shortcut = "⌘I").into()
-}
-
-#[cfg(not(target_os = "macos"))]
-fn italic_shortcut() -> String {
-    t!("editor.format.italic_tooltip", shortcut = "Ctrl+I").into()
 }
 
 /// 들여쓰기는 남기고 한 단계의 문단 서식 기호를 읽는다.
@@ -106,56 +82,6 @@ fn inline_range(
 }
 
 impl HanjiApp {
-    pub(super) fn formatting_tools(&self, cx: &mut Context<Self>, pal: Palette) -> AnyElement {
-        let enabled = self.editor.is_some();
-        let active = |kind| {
-            self.editor.as_ref().is_some_and(|editor| {
-                let state = editor.state().read(cx);
-                inline_range(&state.value(), &state.selected_range(), kind).is_some()
-            })
-        };
-        tool_group(pal)
-            .child(
-                icon_button("format-bold", icons::bold(), enabled, pal)
-                    .when(active(markdown::SpanKind::Strong), |this| {
-                        this.bg(pal.hover)
-                    })
-                    .tooltip(|window, cx| Tooltip::new(bold_shortcut()).build(window, cx))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_inline(markdown::SpanKind::Strong, "**", window, cx);
-                    })),
-            )
-            .child(
-                icon_button("format-italic", icons::italic(), enabled, pal)
-                    .when(active(markdown::SpanKind::Emphasis), |this| {
-                        this.bg(pal.hover)
-                    })
-                    .tooltip(|window, cx| Tooltip::new(italic_shortcut()).build(window, cx))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_inline(markdown::SpanKind::Emphasis, "_", window, cx);
-                    })),
-            )
-            .child(
-                icon_button("format-link", icons::link(), enabled, pal).on_click(cx.listener(
-                    |this, _, window, cx| {
-                        this.open_link_dialog(window, cx);
-                    },
-                )),
-            )
-            .child(
-                icon_button("format-special-char", icons::by_name("smile"), enabled, pal)
-                    .tooltip(|window, cx| {
-                        Tooltip::new(t!("editor.format.special_char_tooltip").to_string())
-                            .build(window, cx)
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.on_insert_special_char(&crate::InsertSpecialChar, window, cx);
-                    })),
-            )
-            .child(self.block_format_button(cx, pal))
-            .into_any_element()
-    }
-
     pub(super) fn toggle_inline(
         &mut self,
         kind: markdown::SpanKind,
@@ -205,90 +131,123 @@ impl HanjiApp {
         self.on_editor_changed(window, cx);
     }
 
-    fn block_format_button(&self, cx: &mut Context<Self>, pal: Palette) -> AnyElement {
+    /// 서식 메뉴의 문단 형식 항목: 지금 커서(선택)가 있는 줄들의 문단 형식을 바꾼다.
+    fn apply_block_format(
+        &mut self,
+        format: BlockFormat,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(editor) = &self.editor else {
-            return icon_button("format-paragraph", icons::paragraph(), false, pal)
-                .into_any_element();
+            self.notify(t!("common.open_sheet_first"), window, cx);
+            return;
         };
-        let state = editor.state().clone();
-        let book = editor.has_book_styles();
-        let app = cx.entity().downgrade();
-        Button::new("format-paragraph")
-            .icon(Icon::new(icons::paragraph()).text_color(pal.foreground.opacity(0.8)))
-            .ghost()
-            .size(px(30.))
-            .rounded(px(15.))
-            .tooltip(t!("editor.format.paragraph_tooltip"))
-            .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, cx| {
-                let selection = state.read(cx).selected_range();
-                let text = state.read(cx).value();
-                let current = block_format(&text[line_range(&text, selection.start)]).0;
-                let mut items = vec![(
-                    BlockFormat::Paragraph,
-                    t!("editor.format.body").to_string(),
-                    None,
-                )];
-                for level in 1..=6 {
-                    let title = match (book, level) {
-                        (true, 1) => t!("editor.format.part_title").to_string(),
-                        (true, 2) => t!("editor.format.chapter_title").to_string(),
-                        (true, 3) => t!("editor.format.section_title").to_string(),
-                        _ => t!("editor.format.heading", level = level).to_string(),
-                    };
-                    items.push((
-                        BlockFormat::Heading(level),
-                        format!("H{level}  {title}"),
-                        None,
-                    ));
-                }
-                items.extend([
-                    (
-                        BlockFormat::Bullet,
-                        t!("editor.format.bullet_list").to_string(),
-                        Some(icons::bullet_list()),
-                    ),
-                    (
-                        BlockFormat::Numbered,
-                        t!("editor.format.numbered_list").to_string(),
-                        Some(icons::numbered_list()),
-                    ),
-                    (
-                        BlockFormat::Quote,
-                        t!("editor.format.quote").to_string(),
-                        Some(icons::quote()),
-                    ),
-                ]);
-                // 체크를 오른쪽에 둔다. 왼쪽이면 고른 항목의 아이콘을 체크가 가린다.
-                let menu = menu.min_w(px(180.)).check_side(Side::Right);
-                items.into_iter().fold(menu, |menu, (format, title, icon)| {
-                    let menu = if format == BlockFormat::Bullet {
-                        menu.separator()
-                    } else {
-                        menu
-                    };
-                    let app = app.clone();
-                    let target = state.clone();
-                    let selection = selection.clone();
-                    menu.item(
-                        PopupMenuItem::new(title)
-                            .when_some(icon, |item, icon| item.icon(icon))
-                            .checked(format == current)
-                            .on_click(move |_, window, cx| {
-                                app.update(cx, |app, cx| {
-                                    app.set_block_format(
-                                        &target,
-                                        selection.clone(),
-                                        format,
-                                        window,
-                                        cx,
-                                    );
-                                })
-                                .ok();
-                            }),
-                    )
-                })
-            })
-            .into_any_element()
+        let target = editor.state().clone();
+        let selection = target.read(cx).selected_range();
+        self.set_block_format(&target, selection, format, window, cx);
+    }
+
+    pub(super) fn on_insert_link(
+        &mut self,
+        _: &crate::InsertLink,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.editor.is_none() {
+            self.notify(t!("common.open_sheet_first"), window, cx);
+            return;
+        }
+        self.open_link_dialog(window, cx);
+    }
+
+    pub(super) fn on_format_body(
+        &mut self,
+        _: &crate::FormatBody,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_format(BlockFormat::Paragraph, window, cx);
+    }
+
+    pub(super) fn on_format_heading1(
+        &mut self,
+        _: &crate::FormatHeading1,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_format(BlockFormat::Heading(1), window, cx);
+    }
+
+    pub(super) fn on_format_heading2(
+        &mut self,
+        _: &crate::FormatHeading2,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_format(BlockFormat::Heading(2), window, cx);
+    }
+
+    pub(super) fn on_format_heading3(
+        &mut self,
+        _: &crate::FormatHeading3,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_format(BlockFormat::Heading(3), window, cx);
+    }
+
+    pub(super) fn on_format_heading4(
+        &mut self,
+        _: &crate::FormatHeading4,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_format(BlockFormat::Heading(4), window, cx);
+    }
+
+    pub(super) fn on_format_heading5(
+        &mut self,
+        _: &crate::FormatHeading5,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_format(BlockFormat::Heading(5), window, cx);
+    }
+
+    pub(super) fn on_format_heading6(
+        &mut self,
+        _: &crate::FormatHeading6,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_format(BlockFormat::Heading(6), window, cx);
+    }
+
+    pub(super) fn on_format_bullet_list(
+        &mut self,
+        _: &crate::FormatBulletList,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_format(BlockFormat::Bullet, window, cx);
+    }
+
+    pub(super) fn on_format_numbered_list(
+        &mut self,
+        _: &crate::FormatNumberedList,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_format(BlockFormat::Numbered, window, cx);
+    }
+
+    pub(super) fn on_format_quote(
+        &mut self,
+        _: &crate::FormatQuote,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_format(BlockFormat::Quote, window, cx);
     }
 
     fn set_block_format(

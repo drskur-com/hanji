@@ -122,18 +122,9 @@ pub(crate) fn icon_button(
         .child(Icon::new(icon).small().text_color(color))
 }
 
-/// 떠 있는 둥근 툴바 묶음.
-pub(crate) fn tool_group(pal: Palette) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .p(px(3.0))
-        .gap(px(2.0))
-        .rounded_full()
-        .bg(pal.background)
-        .border_1()
-        .border_color(pal.panel_border)
-        .shadow_sm()
+/// 툴바 버튼 묶음. 배경·테두리 없이 아이콘만 두고, 버튼은 마우스를 올렸을 때만 옅은 원을 그린다.
+pub(crate) fn tool_group(_pal: Palette) -> Div {
+    div().flex().items_center().gap(px(2.0))
 }
 
 /// macOS: 투명 타이틀바 대신 툴바를 끌어 창을 옮긴다. 더블클릭은 시스템 동작(확대/최소화).

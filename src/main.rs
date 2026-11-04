@@ -66,6 +66,17 @@ actions!(
         OpenSettings,
         ToggleBold,
         ToggleItalic,
+        InsertLink,
+        FormatBody,
+        FormatHeading1,
+        FormatHeading2,
+        FormatHeading3,
+        FormatHeading4,
+        FormatHeading5,
+        FormatHeading6,
+        FormatBulletList,
+        FormatNumberedList,
+        FormatQuote,
         ToggleSidebar,
         ToggleAssistant,
         TogglePreview,
@@ -155,6 +166,10 @@ fn main() {
                 KeyBinding::new("cmd-b", ToggleBold, None),
                 #[cfg(target_os = "macos")]
                 KeyBinding::new("cmd-i", ToggleItalic, None),
+                #[cfg(target_os = "macos")]
+                KeyBinding::new("cmd-k", InsertLink, None),
+                #[cfg(not(target_os = "macos"))]
+                KeyBinding::new("ctrl-k", InsertLink, None),
                 #[cfg(target_os = "macos")]
                 KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
                 KeyBinding::new("cmd-shift-e", CompileProject, None),

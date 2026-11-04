@@ -8,7 +8,9 @@ use crate::APP_NAME;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::InsertOcrText;
 use crate::{
-    CloseLibrary, CompileProject, InsertAudio, InsertExtension, InsertFootnote, InsertImage,
+    CloseLibrary, CompileProject, FormatBody, FormatBulletList, FormatHeading1, FormatHeading2,
+    FormatHeading3, FormatHeading4, FormatHeading5, FormatHeading6, FormatNumberedList,
+    FormatQuote, InsertAudio, InsertExtension, InsertFootnote, InsertImage, InsertLink,
     InsertSpecialChar, InsertTable, InsertVideo, ManageExtensions, NewSheet, OpenDictation,
     OpenLibrary, OpenSettings, QuitApp, RunExtensionCommand, SaveSheet, SearchSheets, SetTheme,
     ShowAbout, ToggleAssistant, ToggleBold, ToggleItalic, ToggleLineGroup, ToggleSidebar, theme,
@@ -69,14 +71,7 @@ pub(crate) fn build_menus(
     menus.push(Menu::new(t!("menu.file")).items(file_items));
 
     // `Emoji & Symbols…`는 macOS 관례상 Edit에, 그 밖에는 Insert > Special Characters… 하나로 둔다(같은 대화상자를 두 번 보이지 않게).
-    let mut edit_items = vec![
-        MenuItem::action(t!("menu.bold"), ToggleBold),
-        MenuItem::action(t!("menu.italic"), ToggleItalic),
-        MenuItem::separator(),
-        MenuItem::action(t!("menu.toggle_line_group"), ToggleLineGroup),
-        MenuItem::separator(),
-        MenuItem::action(t!("menu.search_sheets"), SearchSheets),
-    ];
+    let mut edit_items = vec![MenuItem::action(t!("menu.search_sheets"), SearchSheets)];
     #[cfg(target_os = "macos")]
     {
         edit_items.push(MenuItem::separator());
@@ -91,6 +86,27 @@ pub(crate) fn build_menus(
         edit_items.push(MenuItem::action(t!("menu.settings"), OpenSettings));
     }
     menus.push(Menu::new(t!("menu.edit")).items(edit_items));
+
+    // 서식: 툴바에 있던 굵게·기울임·링크·문단 형식을 여기 모은다.
+    menus.push(Menu::new(t!("menu.format")).items([
+        MenuItem::action(t!("menu.bold"), ToggleBold),
+        MenuItem::action(t!("menu.italic"), ToggleItalic),
+        MenuItem::action(t!("menu.link"), InsertLink),
+        MenuItem::separator(),
+        MenuItem::action(t!("editor.format.body"), FormatBody),
+        MenuItem::action(t!("editor.format.heading", level = 1), FormatHeading1),
+        MenuItem::action(t!("editor.format.heading", level = 2), FormatHeading2),
+        MenuItem::action(t!("editor.format.heading", level = 3), FormatHeading3),
+        MenuItem::action(t!("editor.format.heading", level = 4), FormatHeading4),
+        MenuItem::action(t!("editor.format.heading", level = 5), FormatHeading5),
+        MenuItem::action(t!("editor.format.heading", level = 6), FormatHeading6),
+        MenuItem::separator(),
+        MenuItem::action(t!("editor.format.bullet_list"), FormatBulletList),
+        MenuItem::action(t!("editor.format.numbered_list"), FormatNumberedList),
+        MenuItem::action(t!("editor.format.quote"), FormatQuote),
+        MenuItem::separator(),
+        MenuItem::action(t!("menu.toggle_line_group"), ToggleLineGroup),
+    ]));
 
     #[cfg_attr(
         not(any(target_os = "macos", target_os = "windows")),
