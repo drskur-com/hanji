@@ -1,5 +1,6 @@
 //! 앱 상태(`HanjiApp`)와 액션 핸들러. 화면별 렌더는 하위 모듈에 나눠 둔다.
 
+mod about;
 mod assistant_panel;
 mod book_info;
 mod book_preview;
@@ -51,9 +52,9 @@ use gpui_kit::component::menu::AppMenuBar;
 
 use crate::menus::{PanelsVisible, install_menus};
 use crate::{
-    APP_NAME, CloseLibrary, CompileProject, OpenDictation, OpenLibrary, QuitApp, SaveSheet,
-    SetTheme, ShowAbout, ToggleAssistant, ToggleBold, ToggleItalic, ToggleLineGroup, TogglePreview,
-    ToggleSidebar, ToggleTheme, icons, library, markdown, theme,
+    CloseLibrary, CompileProject, OpenDictation, OpenLibrary, QuitApp, SaveSheet, SetTheme,
+    ShowAbout, ToggleAssistant, ToggleBold, ToggleItalic, ToggleLineGroup, TogglePreview,
+    ToggleSidebar, ToggleTheme, library, markdown, theme,
 };
 use style::*;
 
@@ -334,11 +335,7 @@ impl HanjiApp {
     }
 
     fn on_show_about(&mut self, _: &ShowAbout, window: &mut Window, cx: &mut Context<Self>) {
-        self.notify(
-            t!("library.about", app = APP_NAME, pack = icons::PACK),
-            window,
-            cx,
-        );
+        self.open_about(window, cx);
     }
 
     fn on_toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
