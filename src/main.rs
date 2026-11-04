@@ -112,7 +112,10 @@ fn main() {
             config::migrate_legacy_dirs();
             gpui_kit::init(cx);
             // 웹 주소 이미지(`img(url)`, 이미지 삽입의 내려받기)에 쓰는 HTTP 클라이언트.
-            match reqwest_client::ReqwestClient::user_agent(&format!("{APP_NAME}/0.1")) {
+            match reqwest_client::ReqwestClient::user_agent(concat!(
+                "Hanji/",
+                env!("CARGO_PKG_VERSION")
+            )) {
                 Ok(client) => cx.set_http_client(std::sync::Arc::new(client)),
                 Err(err) => eprintln!("HTTP 클라이언트를 만들 수 없습니다: {err}"),
             }
