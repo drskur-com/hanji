@@ -41,7 +41,7 @@ description = "번들 만들기 (target/release/bundle: macOS .app, Windows .msi
 run = "cargo run --locked --release --manifest-path vendor/cargo-bundle/Cargo.toml -- bundle --release --format wxsmsi"
 
 [tasks.dmg]
-description = "macOS: .app 서명 → dmg 만들기 (target/release/bundle/osx/Hanji-<버전>.dmg)"
+description = "macOS: .app 서명 → dmg 만들기 (target/release/bundle/osx/Hanji-<버전>-apple-silicon.dmg)"
 # MACOS_SIGN_IDENTITY가 없으면 키체인에서 첫 Developer ID Application 인증서를 쓰고, 그것도 없으면
 # ad-hoc 서명(-s -)한다. ad-hoc이면 받은 사람이 처음 한 번 시스템 설정 → 개인정보 보호 및 보안 →
 # "그래도 열기"를 눌러야 한다(서명이 없으면 Gatekeeper가 "손상됨"이라며 아예 막는다).
@@ -57,8 +57,11 @@ fi
 # vendor/cargo-bundle은 Cargo.lock을 커밋하지 않으므로(.gitignore) --locked를 붙이지 않는다.
 cargo run --release --manifest-path vendor/cargo-bundle/Cargo.toml -- bundle --release --format osx
 APP=target/release/bundle/osx/Hanji.app
+# 파일 이름에 apple-silicon을 붙이므로 실행 파일이 arm64 전용인지 확인한다(Intel Mac에서 빌드하면 멈춘다).
+ARCHS=$(lipo -archs "$APP/Contents/MacOS/hanji")
+[ "$ARCHS" = "arm64" ] || { echo "실행 파일 아키텍처가 arm64가 아니다: $ARCHS" >&2; exit 1; }
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
-DMG=target/release/bundle/osx/Hanji-$VERSION.dmg
+DMG=target/release/bundle/osx/Hanji-$VERSION-apple-silicon.dmg
 if [ "$ID" = "-" ]; then
   # ad-hoc 서명에는 타임스탬프를 붙일 수 없다.
   codesign --force --entitlements resources/macos/Hanji.entitlements -s - "$APP"
@@ -86,7 +89,7 @@ depends = ["dmg"]
 run = '''
 set -eu
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
-DMG=target/release/bundle/osx/Hanji-$VERSION.dmg
+DMG=target/release/bundle/osx/Hanji-$VERSION-apple-silicon.dmg
 codesign -dvv "$DMG" 2>&1 | grep -q "Authority=Developer ID Application" || { echo "dmg가 Developer ID로 서명되지 않아 공증할 수 없다(ad-hoc 서명이면 dmg를 그대로 올린다)." >&2; exit 1; }
 xcrun notarytool submit "$DMG" --keychain-profile "${NOTARY_PROFILE:-TT-notary}" --wait
 xcrun stapler staple "$DMG"
