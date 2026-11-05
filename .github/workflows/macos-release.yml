@@ -1,0 +1,102 @@
+# macOS: Hanji-<버전>-arm64.dmg를 서명·공증해 GitHub 릴리스 v<버전>(초안)에 올린다. `mise notarize` + `mise release`(macOS)와 같다.
+# 릴리스가 없으면 이 커밋으로 초안을 만들고, 있으면 파일만 올린다(같은 이름은 덮어쓴다).
+# 초안은 자동 업데이트에 보이지 않는다. Windows msi까지 올린 뒤 `mise publish`로 공개한다.
+#
+# 저장소 시크릿:
+#   MACOS_CERTIFICATE_P12       Developer ID Application 인증서(개인 키 포함) .p12를 base64로 (`base64 -i cert.p12 | pbcopy`)
+#   MACOS_CERTIFICATE_PASSWORD  .p12 암호
+#   APPLE_ID                    공증에 쓰는 Apple ID
+#   APPLE_APP_PASSWORD          그 Apple ID의 앱 암호(account.apple.com)
+#   APPLE_TEAM_ID               팀 ID
+name: macOS release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # macos-latest는 Apple Silicon(arm64)이다. 파일 이름에 arm64를 붙이므로 아래에서 다시 확인한다.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            vendor/cargo-bundle
+
+      # 임시 키체인에 Developer ID 인증서를 넣는다. 잡이 끝나면 러너와 함께 사라진다.
+      - name: Import signing certificate
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          set -eu
+          [ -n "$CERT_P12" ] || { echo "MACOS_CERTIFICATE_P12 시크릿이 없다." >&2; exit 1; }
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          ID=$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)
+          [ -n "$ID" ] || { echo "인증서에 Developer ID Application 서명 ID가 없다." >&2; exit 1; }
+          echo "MACOS_SIGN_IDENTITY=$ID" >> "$GITHUB_ENV"
+
+      - name: Bundle and sign
+        run: |
+          set -eu
+          cargo run --release --manifest-path vendor/cargo-bundle/Cargo.toml -- bundle --release --format osx
+          APP=target/release/bundle/osx/Hanji.app
+          ARCHS=$(lipo -archs "$APP/Contents/MacOS/hanji")
+          [ "$ARCHS" = "arm64" ] || { echo "실행 파일 아키텍처가 arm64가 아니다: $ARCHS" >&2; exit 1; }
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          DMG=target/release/bundle/osx/Hanji-$VERSION-arm64.dmg
+          codesign --force --options runtime --timestamp --entitlements resources/macos/Hanji.entitlements -s "$MACOS_SIGN_IDENTITY" "$APP"
+          codesign --verify --strict --verbose=2 "$APP"
+          STAGE=$(mktemp -d)
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname Hanji -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          rm -rf "$STAGE"
+          codesign --force --timestamp -s "$MACOS_SIGN_IDENTITY" "$DMG"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -eu
+          xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$DMG"
+          spctl --assess --type open --context context:primary-signature --verbose "$DMG"
+
+      - name: Upload to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          TAG=v$VERSION
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG" --clobber
+          else
+            gh release create "$TAG" "$DMG" --draft --target "$GITHUB_SHA" --title "Hanji $VERSION" --generate-notes
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hanji-macos-dmg
+          path: target/release/bundle/osx/Hanji-*-arm64.dmg
