@@ -2,6 +2,7 @@
 name = "hanji"
 version = "0.2.1"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 # tree-sitter-*: 에디터 펜스 코드 블록 하이라이팅. markdown 문법이 펜스를 찾고 안쪽을 각 언어 문법에 넘긴다.

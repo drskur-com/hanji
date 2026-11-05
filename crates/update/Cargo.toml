@@ -2,6 +2,7 @@
 name = "hanji-update"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 publish = false
 description = "Hanji 자동 업데이트: GitHub Releases에서 새 버전을 찾아 내려받고, 서명을 확인한 뒤 앱을 바꾼다."
 

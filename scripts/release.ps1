@@ -11,14 +11,7 @@ if ($Publish) {
     gh release edit $tag -R $repo --draft=false --latest
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     gh release view $tag -R $repo --json url -q .url
-    $wingetId = if ($env:WINGET_PACKAGE_ID) { $env:WINGET_PACKAGE_ID } else { 'drskur.Hanji' }
-    if (Get-Command wingetcreate -ErrorAction SilentlyContinue) {
-        $url = "https://github.com/$repo/releases/download/$tag/Hanji-$version-x64.msi"
-        wingetcreate update $wingetId -v $version -u $url --submit
-        if ($LASTEXITCODE -ne 0) { Write-Warning "wingetcreate update failed. First release? Run: wingetcreate new $url" }
-    } else {
-        Write-Warning 'wingetcreate not found; skipped winget update (winget install wingetcreate).'
-    }
+    # winget 새 버전 PR은 공개 이벤트로 도는 .github/workflows/winget.yml이 보낸다.
     exit 0
 }
 
