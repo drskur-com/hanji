@@ -117,119 +117,145 @@ fn sync_builtin_skills(root: &std::path::Path) {
 }
 
 fn main() {
-    gpui_kit::application()
-        .with_assets(assets::Assets)
-        .run(|cx| {
-            // 설정을 읽기 전에 예전 이름(Writer)의 설정·데이터·캐시 폴더를 옮긴다.
-            config::migrate_legacy_dirs();
-            gpui_kit::init(cx);
-            // 웹 주소 이미지(`img(url)`, 이미지 삽입의 내려받기)에 쓰는 HTTP 클라이언트.
-            match reqwest_client::ReqwestClient::user_agent(concat!(
-                "Hanji/",
-                env!("CARGO_PKG_VERSION")
-            )) {
-                Ok(client) => cx.set_http_client(std::sync::Arc::new(client)),
-                Err(err) => eprintln!("HTTP 클라이언트를 만들 수 없습니다: {err}"),
-            }
-            dock_icon::install();
-            // 확장 그림의 글자에 쓰는 시스템 서체를 미리 찾아 둔다(첫 그림이 기다리지 않게).
-            extension::render::preload_fonts();
+    let app = gpui_kit::application().with_assets(assets::Assets);
+    // macOS는 마지막 창을 닫아도 앱이 남는다. 독 아이콘을 누르면 창을 다시 연다.
+    app.on_reopen(reopen_main_window);
+    app.run(|cx| {
+        // 설정을 읽기 전에 예전 이름(Writer)의 설정·데이터·캐시 폴더를 옮긴다.
+        config::migrate_legacy_dirs();
+        gpui_kit::init(cx);
+        // 웹 주소 이미지(`img(url)`, 이미지 삽입의 내려받기)에 쓰는 HTTP 클라이언트.
+        match reqwest_client::ReqwestClient::user_agent(concat!(
+            "Hanji/",
+            env!("CARGO_PKG_VERSION")
+        )) {
+            Ok(client) => cx.set_http_client(std::sync::Arc::new(client)),
+            Err(err) => eprintln!("HTTP 클라이언트를 만들 수 없습니다: {err}"),
+        }
+        dock_icon::install();
+        // 확장 그림의 글자에 쓰는 시스템 서체를 미리 찾아 둔다(첫 그림이 기다리지 않게).
+        extension::render::preload_fonts();
 
-            // 테마 등록 후 저장된 테마(없거나 모르는 이름이면 기본 라이트) 적용.
-            // 저장된 테마가 라이브러리 테마일 수 있어 마지막 라이브러리의 테마를 먼저 읽는다.
-            let config = config::Config::load();
-            theme::register(cx);
-            theme::set_theme(theme::DEFAULT_LIGHT, cx);
-            if !theme::load_library(config.library_root.as_deref(), cx) {
-                theme::apply_saved(cx);
-            }
+        // 테마 등록 후 저장된 테마(없거나 모르는 이름이면 기본 라이트) 적용.
+        // 저장된 테마가 라이브러리 테마일 수 있어 마지막 라이브러리의 테마를 먼저 읽는다.
+        let config = config::Config::load();
+        theme::register(cx);
+        theme::set_theme(theme::DEFAULT_LIGHT, cx);
+        if !theme::load_library(config.library_root.as_deref(), cx) {
+            theme::apply_saved(cx);
+        }
 
-            // 언어를 먼저 정해야 메뉴와 첫 화면이 그 언어로 나온다.
-            settings::Prefs::init(&config, cx);
-            // macOS: 네이티브 메뉴 / Windows·Linux: 인윈도우 AppMenuBar용 메뉴 등록
-            install_menus(cx);
-            // 설정 창은 어느 창에 포커스가 있든(또는 없든) 열 수 있어야 하므로 앱 전역에서 받는다.
-            cx.on_action(|_: &OpenSettings, cx| settings::open(cx));
+        // 언어를 먼저 정해야 메뉴와 첫 화면이 그 언어로 나온다.
+        settings::Prefs::init(&config, cx);
+        // macOS: 네이티브 메뉴 / Windows·Linux: 인윈도우 AppMenuBar용 메뉴 등록
+        install_menus(cx);
+        // 설정 창은 어느 창에 포커스가 있든(또는 없든) 열 수 있어야 하므로 앱 전역에서 받는다.
+        cx.on_action(|_: &OpenSettings, cx| settings::open(cx));
 
-            // 최소 단축키
-            cx.bind_keys([
-                KeyBinding::new("ctrl-n", NewSheet, None),
-                KeyBinding::new("ctrl-s", SaveSheet, None),
-                KeyBinding::new("ctrl-o", OpenLibrary, None),
-                KeyBinding::new("ctrl-,", OpenSettings, None),
-                #[cfg(target_os = "macos")]
-                KeyBinding::new("cmd-,", OpenSettings, None),
-                KeyBinding::new("ctrl-b", ToggleBold, None),
-                KeyBinding::new("ctrl-i", ToggleItalic, None),
-                KeyBinding::new("ctrl-shift-b", ToggleSidebar, None),
-                KeyBinding::new("ctrl-shift-l", ToggleTheme, None),
-                #[cfg(target_os = "macos")]
-                KeyBinding::new("cmd-b", ToggleBold, None),
-                #[cfg(target_os = "macos")]
-                KeyBinding::new("cmd-i", ToggleItalic, None),
-                #[cfg(target_os = "macos")]
-                KeyBinding::new("cmd-k", InsertLink, None),
-                #[cfg(not(target_os = "macos"))]
-                KeyBinding::new("ctrl-k", InsertLink, None),
-                #[cfg(target_os = "macos")]
-                KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
-                KeyBinding::new("cmd-shift-e", CompileProject, None),
-                KeyBinding::new("ctrl-shift-e", CompileProject, None),
-                #[cfg(target_os = "macos")]
-                KeyBinding::new("ctrl-cmd-space", InsertSpecialChar, None),
-                KeyBinding::new("ctrl-alt-space", InsertSpecialChar, None),
-                // cmd-shift-f는 에디터의 바꾸기다.
-                #[cfg(target_os = "macos")]
-                KeyBinding::new("cmd-alt-f", SearchSheets, None),
-                #[cfg(not(target_os = "macos"))]
-                KeyBinding::new("ctrl-shift-f", SearchSheets, None),
-            ]);
-
-            // 저장된 라이브러리를 열어본다(없거나 실패하면 온보딩).
-            let library = config
-                .library_root
-                .as_deref()
-                .and_then(|root| library::open(root).ok())
-                .inspect(|library| sync_builtin_skills(&library.root));
-            let notice = if config.library_root.is_some() && library.is_none() {
-                Some(SharedString::from(t!("library.notice.saved_unopenable")))
-            } else {
-                None
-            };
-
-            let window_bounds = Some(WindowBounds::Windowed(Bounds::centered(
-                None,
-                size(px(1180.0), px(740.0)),
-                cx,
-            )));
-
-            // Windows/Linux: 네이티브 타이틀바를 숨기고 커스텀 타이틀바를 그린다.
-            #[cfg(not(target_os = "macos"))]
-            let options = WindowOptions {
-                window_bounds,
-                window_min_size: Some(size(px(760.0), px(420.0))),
-                ..TitleBar::window_options()
-            };
-
-            // macOS: 투명 타이틀바. 신호등 버튼은 라이브러리 패널 위쪽 줄 안에 둔다.
+        // 최소 단축키
+        cx.bind_keys([
+            KeyBinding::new("ctrl-n", NewSheet, None),
+            KeyBinding::new("ctrl-s", SaveSheet, None),
+            KeyBinding::new("ctrl-o", OpenLibrary, None),
+            KeyBinding::new("ctrl-,", OpenSettings, None),
             #[cfg(target_os = "macos")]
-            let options = WindowOptions {
-                window_bounds,
-                window_min_size: Some(size(px(760.0), px(420.0))),
-                titlebar: Some(TitlebarOptions {
-                    title: Some(APP_NAME.into()),
-                    appears_transparent: true,
-                    traffic_light_position: Some(point(
-                        px(PANEL_INSET + 12.0),
-                        px(TOOLBAR_HEIGHT / 2.0 - 7.0),
-                    )),
-                }),
-                ..Default::default()
-            };
+            KeyBinding::new("cmd-,", OpenSettings, None),
+            KeyBinding::new("ctrl-b", ToggleBold, None),
+            KeyBinding::new("ctrl-i", ToggleItalic, None),
+            KeyBinding::new("ctrl-shift-b", ToggleSidebar, None),
+            KeyBinding::new("ctrl-shift-l", ToggleTheme, None),
+            #[cfg(target_os = "macos")]
+            KeyBinding::new("cmd-b", ToggleBold, None),
+            #[cfg(target_os = "macos")]
+            KeyBinding::new("cmd-i", ToggleItalic, None),
+            #[cfg(target_os = "macos")]
+            KeyBinding::new("cmd-k", InsertLink, None),
+            #[cfg(not(target_os = "macos"))]
+            KeyBinding::new("ctrl-k", InsertLink, None),
+            #[cfg(target_os = "macos")]
+            KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
+            KeyBinding::new("cmd-shift-e", CompileProject, None),
+            KeyBinding::new("ctrl-shift-e", CompileProject, None),
+            #[cfg(target_os = "macos")]
+            KeyBinding::new("ctrl-cmd-space", InsertSpecialChar, None),
+            KeyBinding::new("ctrl-alt-space", InsertSpecialChar, None),
+            // cmd-shift-f는 에디터의 바꾸기다.
+            #[cfg(target_os = "macos")]
+            KeyBinding::new("cmd-alt-f", SearchSheets, None),
+            #[cfg(not(target_os = "macos"))]
+            KeyBinding::new("ctrl-shift-f", SearchSheets, None),
+        ]);
 
-            gpui_kit::open_window(options, cx, |window, cx| {
-                cx.new(|cx| HanjiApp::new(library, notice, window, cx))
-            })
-            .expect("창 열기에 실패했습니다");
-        });
+        open_main_window(cx);
+    });
+}
+
+/// 메인 창의 핸들. 독 아이콘을 눌렀을 때 창이 아직 있는지 보려고 둔다.
+struct MainWindow(AnyWindowHandle);
+
+impl Global for MainWindow {}
+
+/// 독 아이콘을 눌렀는데 보이는 창이 없을 때(macOS): 메인 창이 남아 있으면 앞으로, 없으면 새로 연다.
+fn reopen_main_window(cx: &mut App) {
+    if let Some(handle) = cx.try_global::<MainWindow>().map(|main| main.0)
+        && cx.windows().contains(&handle)
+        && handle
+            .update(cx, |_, window, _| window.activate_window())
+            .is_ok()
+    {
+        return;
+    }
+    open_main_window(cx);
+}
+
+/// 저장된 라이브러리(없거나 열 수 없으면 온보딩)로 메인 창을 연다.
+fn open_main_window(cx: &mut App) {
+    let config = config::Config::load();
+    // 저장된 라이브러리를 열어본다(없거나 실패하면 온보딩).
+    let library = config
+        .library_root
+        .as_deref()
+        .and_then(|root| library::open(root).ok())
+        .inspect(|library| sync_builtin_skills(&library.root));
+    let notice = if config.library_root.is_some() && library.is_none() {
+        Some(SharedString::from(t!("library.notice.saved_unopenable")))
+    } else {
+        None
+    };
+
+    let window_bounds = Some(WindowBounds::Windowed(Bounds::centered(
+        None,
+        size(px(1180.0), px(740.0)),
+        cx,
+    )));
+
+    // Windows/Linux: 네이티브 타이틀바를 숨기고 커스텀 타이틀바를 그린다.
+    #[cfg(not(target_os = "macos"))]
+    let options = WindowOptions {
+        window_bounds,
+        window_min_size: Some(size(px(760.0), px(420.0))),
+        ..TitleBar::window_options()
+    };
+
+    // macOS: 투명 타이틀바. 신호등 버튼은 라이브러리 패널 위쪽 줄 안에 둔다.
+    #[cfg(target_os = "macos")]
+    let options = WindowOptions {
+        window_bounds,
+        window_min_size: Some(size(px(760.0), px(420.0))),
+        titlebar: Some(TitlebarOptions {
+            title: Some(APP_NAME.into()),
+            appears_transparent: true,
+            traffic_light_position: Some(point(
+                px(PANEL_INSET + 12.0),
+                px(TOOLBAR_HEIGHT / 2.0 - 7.0),
+            )),
+        }),
+        ..Default::default()
+    };
+
+    let (handle, _) = gpui_kit::open_window(options, cx, |window, cx| {
+        cx.new(|cx| HanjiApp::new(library, notice, window, cx))
+    })
+    .expect("창 열기에 실패했습니다");
+    cx.set_global(MainWindow(handle));
 }
