@@ -3751,6 +3751,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre-reqwest-client",
  "grep",
+ "hanji-update",
  "hf-hub",
  "htmd",
  "i_overlay",
@@ -3800,6 +3801,16 @@ dependencies = [
  "windows-future 0.3.2",
  "winres",
  "zip",
+]
+
+[[package]]
+name = "hanji-update"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

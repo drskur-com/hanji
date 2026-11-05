@@ -40,6 +40,7 @@ mod sheet_list;
 mod sheet_search;
 pub(crate) mod style;
 mod todo_list;
+mod update;
 
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::*;
@@ -142,6 +143,9 @@ pub(crate) struct HanjiApp {
     todos: todo_list::Todos,
     /// 받아쓰기(ADR-0054). 처음 녹음할 때 만든다.
     dictation: Option<dictation::Dictation>,
+    /// 자동 업데이트 상태와 진행 중인 확인·내려받기.
+    update: update::UpdateState,
+    update_task: Option<Task<()>>,
     /// 받아쓰기의 녹음 중 요약(ADR-0055).
     dictation_ai: dictation::DictationAi,
     /// 앱 종료 직전에 열린 시트를 저장하는 구독.
@@ -212,6 +216,8 @@ impl HanjiApp {
             file_filter: None,
             todos: Default::default(),
             dictation: None,
+            update: Default::default(),
+            update_task: None,
             dictation_ai: Default::default(),
             _quit_subscription: quit_subscription,
             _prefs_subscription: prefs_subscription,
@@ -223,6 +229,7 @@ impl HanjiApp {
         };
         window.focus(&app.focus, cx);
         app.start_watching(window, cx);
+        app.schedule_update_check(window, cx);
         app.refresh_assistant_models(window, cx);
         app.load_previews(cx);
         app
@@ -704,6 +711,7 @@ impl Render for HanjiApp {
             .on_action(cx.listener(Self::on_toggle_assistant))
             .on_action(cx.listener(Self::on_toggle_bold))
             .on_action(cx.listener(Self::on_toggle_italic))
+            .on_action(cx.listener(Self::on_check_for_updates))
             .on_action(cx.listener(Self::on_insert_link))
             .on_action(cx.listener(Self::on_format_body))
             .on_action(cx.listener(Self::on_format_heading1))

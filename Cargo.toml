@@ -67,6 +67,8 @@ rig-core = { version = "0.45", features = ["reqwest"] }
 rig-bedrock = "0.45"
 # 어시스턴트의 web_fetch: HTTP(rig와 같은 reqwest), HTML → 마크다운, 옛 문자 인코딩(EUC-KR 등).
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip"] }
+# 자동 업데이트: GitHub Releases 확인·내려받기·서명 확인·앱 교체.
+hanji-update = { path = "crates/update" }
 url = "2"
 # 확장 그림의 그림 파일을 SVG(ePub)에 data URI로 넣는다(ADR-0044).
 base64 = "0.22"

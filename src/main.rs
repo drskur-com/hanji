@@ -82,6 +82,7 @@ actions!(
         TogglePreview,
         ToggleTheme,
         ShowAbout,
+        CheckForUpdates,
         QuitApp
     ]
 );

@@ -39,6 +39,11 @@ description = "번들 만들기 (target/release/bundle: macOS .app, Windows .msi
 # Windows 기본 형식 `msi`(msi 크레이트로 직접 만든다)는 Windows Installer가 열지 못한다(0x80004005,
 # 오류 1620). WiX로 만드는 `wxsmsi` 형식을 쓴다. .NET SDK가 있어야 한다(없으면 `winget install Microsoft.DotNet.SDK.8`).
 run = "cargo run --locked --release --manifest-path vendor/cargo-bundle/Cargo.toml -- bundle --release --format wxsmsi"
+# Windows: 만든 Hanji.msi를 자동 업데이트가 찾는 이름(Hanji-<버전>-x64.msi)으로 바꾼다.
+run_windows = [
+  "cargo run --locked --release --manifest-path vendor/cargo-bundle/Cargo.toml -- bundle --release --format wxsmsi",
+  "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/rename-msi.ps1",
+]
 
 [tasks.dmg]
 description = "macOS: .app 서명 → dmg 만들기 (target/release/bundle/osx/Hanji-<버전>-arm64.dmg)"

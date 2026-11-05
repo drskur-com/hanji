@@ -8,12 +8,13 @@ use crate::APP_NAME;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::InsertOcrText;
 use crate::{
-    CloseLibrary, CompileProject, FormatBody, FormatBulletList, FormatHeading1, FormatHeading2,
-    FormatHeading3, FormatHeading4, FormatHeading5, FormatHeading6, FormatNumberedList,
-    FormatQuote, InsertAudio, InsertExtension, InsertFootnote, InsertImage, InsertLink,
-    InsertSpecialChar, InsertTable, InsertVideo, ManageExtensions, NewSheet, OpenDictation,
-    OpenLibrary, OpenSettings, QuitApp, RunExtensionCommand, SaveSheet, SearchSheets, SetTheme,
-    ShowAbout, ToggleAssistant, ToggleBold, ToggleItalic, ToggleLineGroup, ToggleSidebar, theme,
+    CheckForUpdates, CloseLibrary, CompileProject, FormatBody, FormatBulletList, FormatHeading1,
+    FormatHeading2, FormatHeading3, FormatHeading4, FormatHeading5, FormatHeading6,
+    FormatNumberedList, FormatQuote, InsertAudio, InsertExtension, InsertFootnote, InsertImage,
+    InsertLink, InsertSpecialChar, InsertTable, InsertVideo, ManageExtensions, NewSheet,
+    OpenDictation, OpenLibrary, OpenSettings, QuitApp, RunExtensionCommand, SaveSheet,
+    SearchSheets, SetTheme, ShowAbout, ToggleAssistant, ToggleBold, ToggleItalic, ToggleLineGroup,
+    ToggleSidebar, theme,
 };
 
 /// 메뉴 트리.
@@ -43,6 +44,7 @@ pub(crate) fn build_menus(
     #[cfg(target_os = "macos")]
     menus.push(Menu::new(APP_NAME).items([
         MenuItem::action(t!("menu.about"), ShowAbout),
+        MenuItem::action(t!("menu.check_updates"), CheckForUpdates),
         MenuItem::separator(),
         MenuItem::action(t!("menu.settings"), OpenSettings),
         MenuItem::separator(),
@@ -177,7 +179,11 @@ pub(crate) fn build_menus(
     }
     menus.push(Menu::new(t!("menu.view")).items(view_items));
 
-    menus.push(Menu::new(t!("menu.help")).items([MenuItem::action(t!("menu.about"), ShowAbout)]));
+    menus.push(Menu::new(t!("menu.help")).items([
+        MenuItem::action(t!("menu.check_updates"), CheckForUpdates),
+        MenuItem::separator(),
+        MenuItem::action(t!("menu.about"), ShowAbout),
+    ]));
 
     menus
 }

@@ -44,6 +44,8 @@ pub struct Config {
     pub ocr: OcrConfig,
     /// 받아쓰기 창의 옵션(ADR-0054). 다음에 열 때도 그대로 쓴다.
     pub dictation: DictationConfig,
+    /// 앱을 시작할 때 새 버전을 확인할지. 없으면 확인한다.
+    pub check_updates: Option<bool>,
 }
 
 /// 녹음 중 요약 주기(분).
@@ -193,6 +195,11 @@ pub fn default_library_root() -> Option<PathBuf> {
 }
 
 impl Config {
+    /// 시작할 때 새 버전을 확인할지(기본: 확인).
+    pub fn check_updates(&self) -> bool {
+        self.check_updates.unwrap_or(true)
+    }
+
     /// 설정을 읽는다. 파일이 없거나 깨져 있으면 기본값을 돌려준다(앱 시작을 막지 않음).
     pub fn load() -> Self {
         let Some(path) = config_path() else {
