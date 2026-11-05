@@ -153,6 +153,12 @@ debug = 1
 [profile.dev.package."*"]
 opt-level = 3
 
+[profile.release]
+strip = true
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
 # 제목 줄 확대를 위한 gpui-base 패치(PLAN §1.4).
 [patch.crates-io]
 gpui-base = { path = "vendor/gpui-base" }
