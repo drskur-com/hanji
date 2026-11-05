@@ -4,7 +4,8 @@
 use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::dialog::DialogFooter;
+use gpui_kit::component::dialog::{Dialog, DialogFooter};
+use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme as _, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::*;
@@ -34,6 +35,22 @@ pub(super) enum UpdateState {
     },
 }
 
+/// 업데이트 알림의 id. 확인 중 → 결과처럼 이어지는 알림이 쌓이지 않고 앞의 것을 바꾼다.
+struct UpdateNotice;
+
+/// 업데이트 대화상자가 떠 있다는 표시. 닫기 단추는 대화상자의 `on_close`를 부르지 않아 직접 지운다.
+struct UpdateDialogOpen;
+
+impl Global for UpdateDialogOpen {}
+
+/// 업데이트 대화상자를 닫는다.
+fn close_update_dialog(window: &mut Window, cx: &mut App) {
+    window.close_dialog(cx);
+    if cx.has_global::<UpdateDialogOpen>() {
+        cx.remove_global::<UpdateDialogOpen>();
+    }
+}
+
 fn current_version() -> Version {
     Version::parse(env!("CARGO_PKG_VERSION")).unwrap_or(Version(0, 0, 0))
 }
@@ -57,6 +74,36 @@ impl HanjiApp {
         }));
     }
 
+    fn notify_update(
+        &mut self,
+        message: impl Into<SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.push_notification(Notification::info(message.into()).id::<UpdateNotice>(), cx);
+        cx.notify();
+    }
+
+    /// 업데이트 대화상자를 연다. 앞서 띄운 업데이트 대화상자가 아직 떠 있으면 닫고 연다(겹치지 않게).
+    fn open_update_dialog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        build: impl Fn(Dialog, &mut Window, &mut App) -> Dialog + 'static,
+    ) {
+        if cx.try_global::<UpdateDialogOpen>().is_some() && window.has_active_dialog(cx) {
+            window.close_dialog(cx);
+        }
+        cx.set_global(UpdateDialogOpen);
+        window.open_dialog(cx, move |dialog, window, cx| {
+            build(dialog, window, cx).on_close(|_, _, cx| {
+                if cx.has_global::<UpdateDialogOpen>() {
+                    cx.remove_global::<UpdateDialogOpen>();
+                }
+            })
+        });
+    }
+
     pub(super) fn on_check_for_updates(
         &mut self,
         _: &crate::CheckForUpdates,
@@ -71,7 +118,7 @@ impl HanjiApp {
         match &self.update {
             UpdateState::Busy => {
                 if manual {
-                    self.notify(t!("update.busy"), window, cx);
+                    self.notify_update(t!("update.busy"), window, cx);
                 }
                 return;
             }
@@ -84,7 +131,7 @@ impl HanjiApp {
         }
         self.update = UpdateState::Busy;
         if manual {
-            self.notify(t!("update.checking"), window, cx);
+            self.notify_update(t!("update.checking"), window, cx);
         }
         let current = current_version();
         self.update_task = Some(cx.spawn_in(window, async move |this, cx| {
@@ -96,13 +143,13 @@ impl HanjiApp {
                 this.update = UpdateState::Idle;
                 match result {
                     Ok(Some(release)) => this.open_available_dialog(release, window, cx),
-                    Ok(None) if manual => this.notify(
+                    Ok(None) if manual => this.notify_update(
                         t!("update.up_to_date", version = current.to_string()),
                         window,
                         cx,
                     ),
                     Err(err) if manual => {
-                        this.notify(t!("update.failed", err = err.to_string()), window, cx)
+                        this.notify_update(t!("update.failed", err = err.to_string()), window, cx)
                     }
                     _ => {}
                 }
@@ -122,7 +169,7 @@ impl HanjiApp {
         let installation = hanji_update::installation();
         let app = cx.entity().downgrade();
         let current = current_version();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        self.open_update_dialog(window, cx, move |dialog, _, cx| {
             let pal = Palette::from_theme(cx.theme());
             let notes = release.notes.trim().to_string();
             let unsupported = installation.as_ref().err().map(ToString::to_string);
@@ -172,7 +219,7 @@ impl HanjiApp {
                         .primary()
                         .label(t!("update.install"))
                         .on_click(move |_, window, cx| {
-                            window.close_dialog(cx);
+                            close_update_dialog(window, cx);
                             app.update(cx, |app, cx| {
                                 app.download_update(
                                     release.clone(),
@@ -190,7 +237,7 @@ impl HanjiApp {
                         .primary()
                         .label(t!("update.open_page"))
                         .on_click(move |_, window, cx| {
-                            window.close_dialog(cx);
+                            close_update_dialog(window, cx);
                             cx.open_url(&url);
                         })
                 }
@@ -205,7 +252,7 @@ impl HanjiApp {
                         .child(
                             Button::new("update-later")
                                 .label(t!("update.later"))
-                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                                .on_click(|_, window, cx| close_update_dialog(window, cx)),
                         )
                         .child(primary),
                 )
@@ -224,7 +271,7 @@ impl HanjiApp {
             return;
         }
         self.update = UpdateState::Busy;
-        self.notify(
+        self.notify_update(
             t!("update.downloading", version = release.version.to_string()),
             window,
             cx,
@@ -254,7 +301,7 @@ impl HanjiApp {
                 }
                 Err(err) => {
                     this.update = UpdateState::Idle;
-                    this.notify(t!("update.failed", err = err.to_string()), window, cx);
+                    this.notify_update(t!("update.failed", err = err.to_string()), window, cx);
                 }
             })
             .ok();
@@ -269,7 +316,7 @@ impl HanjiApp {
         } else {
             t!("update.ready_downloaded", version = version.to_string())
         };
-        window.open_dialog(cx, move |dialog, _, cx| {
+        self.open_update_dialog(window, cx, move |dialog, _, cx| {
             let pal = Palette::from_theme(cx.theme());
             let app = app.clone();
             dialog
@@ -287,14 +334,14 @@ impl HanjiApp {
                         .child(
                             Button::new("update-ready-later")
                                 .label(t!("update.later"))
-                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                                .on_click(|_, window, cx| close_update_dialog(window, cx)),
                         )
                         .child(
                             Button::new("update-restart")
                                 .primary()
                                 .label(t!("update.restart"))
                                 .on_click(move |_, window, cx| {
-                                    window.close_dialog(cx);
+                                    close_update_dialog(window, cx);
                                     app.update(cx, |app, cx| app.restart_to_update(window, cx))
                                         .ok();
                                 }),
@@ -319,7 +366,7 @@ impl HanjiApp {
             hanji_update::install(installation, downloaded)
         };
         if let Err(err) = result {
-            self.notify(t!("update.failed", err = err.to_string()), window, cx);
+            self.notify_update(t!("update.failed", err = err.to_string()), window, cx);
             return;
         }
         self.close_sheet(cx);
