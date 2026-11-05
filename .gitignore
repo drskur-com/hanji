@@ -1,1 +1,4 @@
 target/
+
+# macOS Finder
+.DS_Store
