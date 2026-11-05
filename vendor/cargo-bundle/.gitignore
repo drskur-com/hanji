@@ -1,7 +1,6 @@
 /.vscode
 /.VSCodeCounter
 /.idea/
-/Cargo.lock
 target
 .DS_Store
 *.rs.bk
