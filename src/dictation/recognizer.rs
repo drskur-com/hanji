@@ -18,6 +18,7 @@ use std::sync::mpsc as std_mpsc;
 use futures::channel::mpsc;
 use gpui_kit::component::speech::{RecognitionSession, SpeechError, SpeechRecognizer, SpeechSink};
 use gpui_kit::gpui::*;
+#[cfg(feature = "dictation")]
 use transcribe_cpp::{Model, RunOptions, StreamOptions};
 
 use super::pipeline::{
@@ -87,6 +88,18 @@ impl RecognitionSession for Session {
 }
 
 /// 작업 스레드: 소리 채널이 닫힐 때까지 문단 단위로 인식해 쓰기 스레드로 넘기고, 쓰기 스레드가 다 쓰면 끝낸다.
+/// `dictation` 기능 없이 빌드하면 인식기 없이 곧 실패를 알린다.
+#[cfg(not(feature = "dictation"))]
+fn run(
+    _model: &Path,
+    _setup: RecordingSetup,
+    _audio: std_mpsc::Receiver<Vec<i16>>,
+    events: mpsc::UnboundedSender<WorkerEvent>,
+) {
+    let _ = events.unbounded_send(WorkerEvent::Failed(super::NOT_BUILT.into()));
+}
+
+#[cfg(feature = "dictation")]
 fn run(
     model: &Path,
     setup: RecordingSetup,

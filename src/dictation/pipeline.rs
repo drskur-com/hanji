@@ -16,7 +16,11 @@ use futures::StreamExt as _;
 use futures::channel::mpsc;
 use gpui_kit::component::speech::{SpeechError, SpeechSink};
 use gpui_kit::gpui::*;
+#[cfg(feature = "dictation")]
 use transcribe_cpp::{Model, RunOptions, Session as AsrSession};
+
+#[cfg(not(feature = "dictation"))]
+use super::NOT_BUILT;
 
 use super::output::{Record, write_out};
 use super::wav::WavWriter;
@@ -211,11 +215,28 @@ fn write_pieces(
 }
 
 /// 쓰기 스레드에서 문단을 Cohere로 다시 받아 적는다.
+#[cfg(feature = "dictation")]
 struct Refining {
     session: AsrSession,
     options: RunOptions,
 }
 
+/// `dictation` 기능 없이 빌드하면 다시 받아 적지 않는다.
+#[cfg(not(feature = "dictation"))]
+struct Refining;
+
+#[cfg(not(feature = "dictation"))]
+impl Refining {
+    fn load(_refiner: &Refiner) -> Result<Self, String> {
+        Err(NOT_BUILT.into())
+    }
+
+    fn transcribe(&mut self, text: String, _audio: &[f32]) -> String {
+        text
+    }
+}
+
+#[cfg(feature = "dictation")]
 impl Refining {
     /// 모델은 녹음마다 불러(메모리 매핑) 녹음이 끝나면 놓는다(ADR-0054: 종료 중 ggml Metal 정리).
     fn load(refiner: &Refiner) -> Result<Self, String> {

@@ -11,12 +11,20 @@
 //! `hf` CLI·Handy 같은 다른 앱과 같은 파일을 함께 쓴다. 이미 캐시에 있으면 내려받지 않는다.
 //!
 //! 내려받기는 앱 전역 [`ModelStore`]가 맡아 설정 창을 닫아도 이어진다.
+//!
+//! 인식(transcribe.cpp)은 `dictation` 기능을 켜야 빌드한다(Windows는 Vulkan SDK가 있어야 한다). 끄면 화면도
+//! 숨고, 녹음을 시작해도 곧 실패를 알린다.
+#![cfg_attr(not(feature = "dictation"), allow(dead_code, unused_imports))]
 
-#[cfg(target_os = "macos")]
 /// 받아쓰기를 화면에 보일지. 끄면 파일 메뉴의 받아쓰기, 사이드바의 받아쓰기 줄, 설정의 받아쓰기 페이지,
 /// 시트 찾기의 받아쓰기 기록이 숨는다. 코드와 라이브러리의 `STT/` 폴더는 그대로 둔다.
-pub const ENABLED: bool = false;
+pub const ENABLED: bool = cfg!(feature = "dictation");
 
+/// `dictation` 기능 없이 빌드했을 때 인식 대신 알리는 까닭.
+#[cfg(not(feature = "dictation"))]
+const NOT_BUILT: &str = "Hanji was built without the `dictation` feature.";
+
+#[cfg(target_os = "macos")]
 mod apple;
 mod capture;
 mod output;
@@ -151,6 +159,7 @@ impl Engine {
 pub fn init_backends() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
+        #[cfg(feature = "dictation")]
         if let Err(err) = transcribe_cpp::init_backends_default() {
             eprintln!("음성 인식 백엔드를 불러오지 못했습니다: {err}");
         }

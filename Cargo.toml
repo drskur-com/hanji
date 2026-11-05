@@ -87,7 +87,7 @@ hf-hub = "1"
 # 받아쓰기의 마이크·시스템 소리(루프백) 입력(ADR-0054). rodio와 같은 판이어야 네이티브 라이브러리(ALSA) 링크가 겹치지 않는다.
 cpal = "0.18"
 # 받아쓰기 인식(ADR-0054): transcribe.cpp(ggml)로 Nemotron GGUF를 스트리밍으로 돌린다. macOS는 Metal, 그 밖은 CPU.
-transcribe-cpp = "0.4"
+transcribe-cpp = { version = "0.4", optional = true }
 # 시트 본문 검색. ripgrep의 검색 엔진(grep-searcher + grep-regex)을 라이브러리로 쓴다.
 grep = "0.4.1"
 
@@ -136,10 +136,15 @@ windows-future = "0.3"
 # 빌드(`dynamic-backends`)라 Vulkan 드라이버가 없는 PC에서는 그 모듈만 건너뛰고 CPU로 돌며, CPU 모듈도 명령어
 # 세트마다 따로 있어 빌드한 PC보다 오래된 CPU에서도 돈다. 빌드하는 PC에 Vulkan SDK(`glslc`)가 있어야 하고,
 # 실행 파일 옆에 transcribe·ggml DLL을 함께 둔다(빌드가 `target/<profile>/`에 놓는다).
-transcribe-cpp = { version = "0.4", features = ["vulkan", "dynamic-backends"] }
+transcribe-cpp = { version = "0.4", features = ["vulkan", "dynamic-backends"], optional = true }
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winres = "0.1"
+
+[features]
+# 받아쓰기(ADR-0054). 화면에서 숨겼으므로 기본으로는 빌드하지 않는다. 켜면 transcribe.cpp를 빌드한다
+# (Windows는 Vulkan SDK가 있어야 한다): `cargo run --features dictation`.
+dictation = ["dep:transcribe-cpp"]
 
 [profile.dev]
 opt-level = 0
