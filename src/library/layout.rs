@@ -70,7 +70,7 @@ pub fn migrate_legacy_names(root: &Path) -> io::Result<()> {
     std::fs::rename(legacy_marker, root.join(MARKER_DIR))
 }
 
-fn rename_legacy_group_meta(dir: &Path) -> io::Result<()> {
+pub(super) fn rename_legacy_group_meta(dir: &Path) -> io::Result<()> {
     let legacy = dir.join(LEGACY_GROUP_META_FILE);
     let current = dir.join(GROUP_META_FILE);
     if legacy.is_file() && !current.exists() {

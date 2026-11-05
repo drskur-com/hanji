@@ -675,6 +675,29 @@ fn create_unique_dir(parent: &Path, base: &str) -> io::Result<PathBuf> {
     }
 }
 
+/// 따로 풀어 둔 프로젝트 폴더(`staged`)를 `projects_dir` 아래 `name`(겹치면 " 2"…)으로 옮긴다.
+///
+/// 예전 이름(`.writer.toml`)의 그룹 메타는 지금 이름으로 바꾸고, 추가자료 폴더가 없으면 만든다.
+/// `staged`는 `projects_dir`와 같은 볼륨에 있어야 한다(이름 바꾸기로 옮긴다).
+pub fn adopt_project_dir(projects_dir: &Path, staged: &Path, name: &str) -> io::Result<PathBuf> {
+    super::layout::rename_legacy_group_meta(staged)?;
+    ensure_project_layout(staged)?;
+    let base = project_dir_name(name);
+    let mut n = 1;
+    loop {
+        let candidate = if n == 1 {
+            projects_dir.join(&base)
+        } else {
+            projects_dir.join(format!("{base} {n}"))
+        };
+        if !candidate.exists() {
+            std::fs::rename(staged, &candidate)?;
+            return Ok(candidate);
+        }
+        n += 1;
+    }
+}
+
 /// 프로젝트 이름 → 폴더 이름: 경로 구분자를 `-`로 바꾸고, 앞의 `.`(숨김)을 떼고, 비면 "무제".
 fn project_dir_name(name: &str) -> String {
     let base: String = name

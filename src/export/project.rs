@@ -4,8 +4,8 @@
 //! 풀었을 때 `<Project>/…`가 바로 생기고, 폴더 이름을 바꿔도 안의 구조가 그대로다.
 //! 숨김 파일(`.hanji.toml` 등)도 프로젝트 데이터이므로 함께 담는다.
 
-use std::fs::{self, OpenOptions};
-use std::io::{BufWriter, Seek, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use zip::CompressionMethod;
@@ -147,6 +147,97 @@ pub fn with_hanji_extension(path: &Path) -> PathBuf {
     }
 }
 
+/// `.hanji`(또는 예전 `.writer`) 파일을 풀어 `projects_dir` 아래 새 프로젝트로 넣고 경로를 돌려준다.
+///
+/// 프로젝트 이름은 파일 이름(확장자 뺀 것)이고, 같은 이름이 있으면 " 2"…를 붙인다.
+/// `projects_dir` 안의 숨김 임시 폴더에 다 푼 뒤 옮기므로, 실패해도 반쪽 프로젝트가 보이지 않는다.
+/// 아카이브 밖을 가리키는 항목(`../`, 절대 경로)과 심볼릭 링크는 받지 않는다.
+pub fn import_from_file(archive_path: &Path, projects_dir: &Path) -> Result<PathBuf, ExportError> {
+    let name = archive_path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let file = File::open(archive_path)?;
+    fs::create_dir_all(projects_dir)?;
+    let staged = projects_dir.join(format!(".hanji-import-{}.tmp", ulid::Ulid::generate()));
+    fs::create_dir(&staged)?;
+    let result = (|| {
+        extract(BufReader::new(file), &staged)?;
+        let root = archive_root(&staged)?;
+        Ok(crate::library::adopt_project_dir(
+            projects_dir,
+            &root,
+            &name,
+        )?)
+    })();
+    // 성공하면 프로젝트 폴더가 옮겨져 빈 임시 폴더만(또는 감싼 폴더만) 남는다.
+    let _ = fs::remove_dir_all(&staged);
+    result
+}
+
+/// ZIP 내용을 `dest` 아래에 그대로 푼다.
+fn extract<R: Read + Seek>(reader: R, dest: &Path) -> Result<(), ExportError> {
+    let mut zip = zip::ZipArchive::new(reader)?;
+    if zip.is_empty() {
+        return Err(ExportError::InvalidProject(
+            t!("export.error.empty_archive").to_string(),
+        ));
+    }
+    for index in 0..zip.len() {
+        let mut entry = zip.by_index(index)?;
+        let Some(relative) = entry.enclosed_name() else {
+            return Err(ExportError::InvalidProject(
+                t!("export.error.unsafe_entry", name = entry.name()).to_string(),
+            ));
+        };
+        if entry.is_symlink() {
+            continue;
+        }
+        let target = dest.join(relative);
+        if entry.is_dir() {
+            fs::create_dir_all(&target)?;
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut out = BufWriter::new(
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)?,
+        );
+        std::io::copy(&mut entry, &mut out)?;
+        out.flush()?;
+    }
+    Ok(())
+}
+
+/// 푼 폴더에서 프로젝트 루트를 찾는다. 내보낸 파일은 내용이 루트에 바로 있지만,
+/// 손으로 압축해 폴더 하나로 감싼 경우(메타 파일 없이 폴더 하나만 있을 때)는 그 폴더를 쓴다.
+fn archive_root(staged: &Path) -> Result<PathBuf, ExportError> {
+    let has_meta = |dir: &Path| {
+        dir.join(crate::library::GROUP_META_FILE).is_file() || dir.join(".writer.toml").is_file()
+    };
+    if has_meta(staged) {
+        return Ok(staged.to_path_buf());
+    }
+    let entries: Vec<_> = fs::read_dir(staged)?
+        .filter_map(Result::ok)
+        .filter(|entry| !entry.file_name().to_string_lossy().starts_with("__MACOSX"))
+        .filter(|entry| entry.file_name() != ".DS_Store")
+        .collect();
+    if let [only] = entries.as_slice()
+        && only.path().is_dir()
+        && has_meta(&only.path())
+    {
+        return Ok(only.path());
+    }
+    Err(ExportError::InvalidProject(
+        t!("export.error.not_project_archive").to_string(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +335,50 @@ mod tests {
             with_hanji_extension(Path::new("책.zip")),
             PathBuf::from("책.zip.hanji")
         );
+    }
+
+    #[test]
+    fn import_round_trips_and_avoids_name_clash() {
+        let root = temp_dir("import");
+        let project = root.join("src");
+        fs::create_dir_all(project.join("1부")).unwrap();
+        fs::write(project.join(".hanji.toml"), "icon = \"book\"\n").unwrap();
+        fs::write(project.join("1부").join("a.md"), "# A\n").unwrap();
+        let archive = root.join("내 책.hanji");
+        export_to_file(&project, &archive).unwrap();
+
+        let projects = root.join("Projects");
+        let first = import_from_file(&archive, &projects).unwrap();
+        assert_eq!(first, projects.join("내 책"));
+        assert_eq!(
+            fs::read_to_string(first.join("1부").join("a.md")).unwrap(),
+            "# A\n"
+        );
+        let second = import_from_file(&archive, &projects).unwrap();
+        assert_eq!(second, projects.join("내 책 2"));
+        // 임시 폴더가 남지 않는다.
+        let leftovers = fs::read_dir(&projects)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with('.'))
+            .count();
+        assert_eq!(leftovers, 0);
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn import_rejects_non_project_archive() {
+        let root = temp_dir("import-bad");
+        let archive = root.join("bad.hanji");
+        let mut zip = zip::ZipWriter::new(File::create(&archive).unwrap());
+        zip.start_file("note.txt", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"x").unwrap();
+        zip.finish().unwrap();
+
+        let projects = root.join("Projects");
+        assert!(import_from_file(&archive, &projects).is_err());
+        assert_eq!(fs::read_dir(&projects).unwrap().count(), 0);
+        fs::remove_dir_all(&root).ok();
     }
 }

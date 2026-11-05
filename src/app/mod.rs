@@ -21,6 +21,7 @@ mod extension_commands;
 mod extension_painter;
 mod file_view;
 mod gif_player;
+mod import_project;
 mod insert_extension;
 mod insert_footnote;
 mod insert_image;
@@ -706,6 +707,7 @@ impl Render for HanjiApp {
             .on_action(cx.listener(Self::on_toggle_line_group))
             .on_action(cx.listener(Self::on_open_library))
             .on_action(cx.listener(Self::on_close_library))
+            .on_action(cx.listener(Self::on_import_project))
             .on_action(cx.listener(Self::on_show_about))
             .on_action(cx.listener(Self::on_toggle_sidebar))
             .on_action(cx.listener(Self::on_toggle_assistant))

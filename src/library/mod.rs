@@ -38,8 +38,8 @@ pub use images::{is_web_address, resolve_image_path};
 pub use layout::{FolderKind, initialize, inspect};
 pub use manuscript::{ManuscriptSheet, manuscript_sheets};
 pub use meta::{
-    append_sheet, create_group, create_project, create_sheet, glue_sheets, move_group,
-    move_selected_sheets, move_sheet, move_sheets_between, move_to_trash, set_sort,
+    adopt_project_dir, append_sheet, create_group, create_project, create_sheet, glue_sheets,
+    move_group, move_selected_sheets, move_sheet, move_sheets_between, move_to_trash, set_sort,
     set_sort_descending, trash_sheets, unglue_sheets, update_group, update_project,
 };
 pub use preview::{Preview, read_preview};

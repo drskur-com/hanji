@@ -63,6 +63,7 @@ actions!(
         OpenDictation,
         OpenLibrary,
         CloseLibrary,
+        ImportProject,
         OpenSettings,
         ToggleBold,
         ToggleItalic,

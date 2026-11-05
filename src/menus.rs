@@ -10,9 +10,9 @@ use crate::InsertOcrText;
 use crate::{
     CheckForUpdates, CloseLibrary, CompileProject, FormatBody, FormatBulletList, FormatHeading1,
     FormatHeading2, FormatHeading3, FormatHeading4, FormatHeading5, FormatHeading6,
-    FormatNumberedList, FormatQuote, InsertAudio, InsertExtension, InsertFootnote, InsertImage,
-    InsertLink, InsertSpecialChar, InsertTable, InsertVideo, ManageExtensions, NewSheet,
-    OpenDictation, OpenLibrary, OpenSettings, QuitApp, RunExtensionCommand, SaveSheet,
+    FormatNumberedList, FormatQuote, ImportProject, InsertAudio, InsertExtension, InsertFootnote,
+    InsertImage, InsertLink, InsertSpecialChar, InsertTable, InsertVideo, ManageExtensions,
+    NewSheet, OpenDictation, OpenLibrary, OpenSettings, QuitApp, RunExtensionCommand, SaveSheet,
     SearchSheets, SetTheme, ShowAbout, ToggleAssistant, ToggleBold, ToggleItalic, ToggleLineGroup,
     ToggleSidebar, theme,
 };
@@ -65,6 +65,8 @@ pub(crate) fn build_menus(
     }
     file_items.push(MenuItem::action(t!("menu.open_library"), OpenLibrary));
     file_items.push(MenuItem::action(t!("menu.close_library"), CloseLibrary));
+    file_items.push(MenuItem::separator());
+    file_items.push(MenuItem::action(t!("menu.import_project"), ImportProject));
     #[cfg(not(target_os = "macos"))]
     {
         file_items.push(MenuItem::separator());
