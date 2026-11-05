@@ -1,0 +1,61 @@
+# Windows: Hanji-<버전>-x64.msi를 만들어 GitHub 릴리스 v<버전>(초안)에 올린다. `mise bundle` + `mise release`(Windows)와 같다.
+# 릴리스가 없으면 이 커밋으로 초안을 만들고, 있으면 파일만 올린다(같은 이름은 덮어쓴다).
+# 초안은 자동 업데이트에 보이지 않는다. macOS dmg까지 올린 뒤 `mise publish`로 공개한다.
+name: Windows release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      # transcribe.cpp 등 C++ 소스의 UTF-8 주석 때문에 mise.toml과 같이 둔다.
+      CL: -utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            vendor/cargo-bundle
+
+      # wxsmsi 형식은 dotnet build로 WiX(WixToolset.Sdk)를 부른다.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Bundle
+        shell: pwsh
+        run: |
+          cargo run --release --manifest-path vendor/cargo-bundle/Cargo.toml -- bundle --release --format wxsmsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/rename-msi.ps1
+
+      - name: Upload to draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches.Groups[1].Value
+          $tag = "v$version"
+          $msi = Get-ChildItem -Path target/release/bundle -Recurse -Filter "Hanji-$version-x64.msi" | Select-Object -First 1
+          if (-not $msi) { throw "Hanji-$version-x64.msi not found." }
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $msi.FullName --clobber
+          } else {
+            gh release create $tag $msi.FullName --draft --target $env:GITHUB_SHA --title "Hanji $version" --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hanji-windows-msi
+          path: target/release/bundle/**/Hanji-*-x64.msi
