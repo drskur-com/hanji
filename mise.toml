@@ -110,7 +110,7 @@ description = "GitHub 릴리스 v<버전>(초안)에 이 플랫폼의 설치 파
 # 태그는 GitHub 쪽에서 붙이므로 지금 커밋이 origin에 올라가 있어야 한다.
 run = '''
 set -eu
-REPO=drskur-com/writer
+REPO=drskur-com/hanji
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 TAG=v$VERSION
 DMG=target/release/bundle/osx/Hanji-$VERSION-arm64.dmg
@@ -133,7 +133,7 @@ run_windows = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/relea
 description = "초안 릴리스 v<버전>을 공개하고 최신으로 표시하기 — 이때부터 자동 업데이트가 새 버전을 찾는다"
 run = '''
 set -eu
-REPO=drskur-com/writer
+REPO=drskur-com/hanji
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
 TAG=v$VERSION
 ASSETS=$(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name')

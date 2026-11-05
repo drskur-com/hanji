@@ -22,12 +22,12 @@ mod platform;
 pub use platform::{Installation, installation};
 
 /// 릴리스를 올리는 GitHub 저장소.
-pub const REPOSITORY: &str = "drskur-com/writer";
+pub const REPOSITORY: &str = "drskur-com/hanji";
 
 const USER_AGENT: &str = concat!(
     "Hanji-Updater/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/drskur-com/writer)"
+    " (+https://github.com/drskur-com/hanji)"
 );
 
 /// 업데이트 실패.
@@ -324,7 +324,7 @@ mod tests {
         serde_json::json!({
             "tag_name": tag,
             "body": "notes",
-            "html_url": "https://github.com/drskur-com/writer/releases/tag/v0.3.0",
+            "html_url": "https://github.com/drskur-com/hanji/releases/tag/v0.3.0",
             "draft": false,
             "prerelease": false,
             "assets": assets,

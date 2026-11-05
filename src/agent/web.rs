@@ -50,7 +50,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const USER_AGENT: &str = concat!(
     "Hanji/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/drskur-com/writer)"
+    " (+https://github.com/drskur-com/hanji)"
 );
 
 /// 모델에 알릴 도구 설명.

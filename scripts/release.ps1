@@ -3,7 +3,7 @@
 # publish(-Publish): 초안을 공개하고 최신으로 표시한다.
 param([switch]$Publish)
 $ErrorActionPreference = 'Stop'
-$repo = 'drskur-com/writer'
+$repo = 'drskur-com/hanji'
 $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches.Groups[1].Value
 $tag = "v$version"
 
