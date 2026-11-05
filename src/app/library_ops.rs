@@ -7,7 +7,7 @@ use gpui_kit::component::*;
 use gpui_kit::gpui::*;
 use std::path::{Path, PathBuf};
 
-use super::library_panel::DraggedGroups;
+use super::library_panel::{DraggedGroups, GroupDrop};
 use super::{GroupFamily, HanjiApp, Selection};
 use crate::{APP_NAME, NewSheet, config, library, watch};
 
@@ -277,6 +277,16 @@ impl HanjiApp {
             )
     }
 
+    /// 끌 수 있는 그룹 줄인지: 옮길 수 있는 그룹, 또는 (같은 레벨 순서만 바꾸는) 프로젝트.
+    pub(super) fn group_is_draggable(&self, path: &Path) -> bool {
+        self.group_is_movable(path)
+            || (matches!(self.group_family(path), Some(GroupFamily::Project(_)))
+                && self
+                    .library
+                    .as_ref()
+                    .is_some_and(|lib| lib.find_project(path).is_some()))
+    }
+
     /// 지금 화면에 보이는 그룹 줄(경로, 위에서 아래 순서).
     pub(super) fn visible_group_paths(&self) -> Vec<PathBuf> {
         let Some(lib) = &self.library else {
@@ -355,19 +365,64 @@ impl HanjiApp {
         roots
     }
 
-    /// 그룹을 끌어 다른 그룹의 하위로 옮긴다. 파일을 옮기고 양쪽 부모의 `groups` 순서를 저장한다.
-    pub(super) fn move_groups_to(
+    /// 끌고 있는 그룹들을 `target` 줄의 `place`에 놓을 수 있는지.
+    ///
+    /// - `Into`: 같은 범위의 옮길 수 있는 그룹 아래로(자기·하위·조상은 안 됨, ADR-0020).
+    /// - `Before`/`After`: `target`과 같은 레벨로. 같은 범위여야 하고, 프로젝트끼리는 순서만 바꾼다.
+    pub(super) fn group_drop_allowed(
+        &self,
+        target: &Path,
+        dragged: &DraggedGroups,
+        place: GroupDrop,
+    ) -> bool {
+        let Some(target_family) = self.group_family(target) else {
+            return false;
+        };
+        let is_group = self
+            .library
+            .as_ref()
+            .is_some_and(|lib| lib.find_group(target).is_some());
+        if !is_group || library::is_reserved_group(target) {
+            return false;
+        }
+        match place {
+            GroupDrop::Into => {
+                target_family == dragged.family
+                    && self.group_is_movable(target)
+                    && !dragged
+                        .paths
+                        .iter()
+                        .any(|source| target.starts_with(source) || source.starts_with(target))
+            }
+            GroupDrop::Before | GroupDrop::After => {
+                let compatible = match (&target_family, &dragged.family) {
+                    (GroupFamily::Project(_), GroupFamily::Project(_)) => true,
+                    (GroupFamily::Project(_), _) | (_, GroupFamily::Project(_)) => false,
+                    (a, b) => a == b,
+                };
+                compatible
+                    && !dragged
+                        .paths
+                        .iter()
+                        .any(|source| target.starts_with(source))
+            }
+        }
+    }
+
+    /// 그룹을 끌어 다른 그룹의 하위(`Into`)나 같은 레벨(`Before`/`After`)로 옮긴다.
+    /// 폴더를 옮기고 관련된 부모들의 `groups` 순서를 저장한다.
+    pub(super) fn move_groups(
         &mut self,
         target_path: &Path,
+        place: GroupDrop,
         dragged: &DraggedGroups,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.group_family(target_path).as_ref() != Some(&dragged.family)
-            || !self.group_is_movable(target_path)
-        {
+        if !self.group_drop_allowed(target_path, dragged, place) {
             return;
         }
+        let into = place == GroupDrop::Into;
         let mut sources: Vec<PathBuf> = dragged
             .paths
             .iter()
@@ -375,10 +430,10 @@ impl HanjiApp {
                 let path = path.as_path();
                 path != target_path
                     && !target_path.starts_with(path)
-                    && !path.starts_with(target_path)
+                    && (!into || !path.starts_with(target_path))
             })
             .filter(|path| {
-                self.group_is_movable(path)
+                self.group_is_draggable(path)
                     && self.group_family(path) == Some(dragged.family.clone())
             })
             .cloned()
@@ -386,14 +441,16 @@ impl HanjiApp {
         if sources.is_empty() {
             return;
         }
-        // 부모를 옮기면 자식은 폴더째 따라오므로, 겹치는 자식은 뺀다.
-        sources.sort_by_key(|path| path.components().count());
+        // 부모를 옮기면 자식은 폴더째 따라오므로, 겹치는 자식은 뺀다. 화면 순서는 지킨다.
         let mut roots: Vec<PathBuf> = Vec::new();
-        for path in sources {
+        let mut by_depth = sources.clone();
+        by_depth.sort_by_key(|path| path.components().count());
+        for path in by_depth {
             if !roots.iter().any(|root| path.starts_with(root)) {
                 roots.push(path);
             }
         }
+        sources.retain(|path| roots.contains(path));
 
         let Some(root) = self.library.as_ref().map(|lib| lib.root.clone()) else {
             return;
@@ -418,9 +475,23 @@ impl HanjiApp {
             .map(|editor| editor.path().to_path_buf());
 
         let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
-        for source in &roots {
-            match library::move_group(source, target_path) {
-                Ok(new_path) => moved.push((source.clone(), new_path)),
+        // 같은 레벨로 옮길 때는 첫 그룹을 대상 앞/뒤에 두고, 나머지는 바로 앞에 옮긴 그룹 뒤에 잇는다.
+        let mut anchor = target_path.to_path_buf();
+        let mut after = place == GroupDrop::After;
+        for source in &sources {
+            let result = if into {
+                library::move_group(source, target_path)
+            } else {
+                library::move_group_beside(source, &anchor, after)
+            };
+            match result {
+                Ok(new_path) => {
+                    if !into {
+                        anchor = new_path.clone();
+                        after = true;
+                    }
+                    moved.push((source.clone(), new_path));
+                }
                 Err(err) => {
                     self.notify(t!("library.group.move_failed", err = err), window, cx);
                     break;
@@ -471,18 +542,22 @@ impl HanjiApp {
             }
         }
 
-        // 옮긴 그룹이 대상 아래에 보이도록 펼쳐 둔다.
-        self.expanded_groups.insert(target_path.to_path_buf());
         self.load_previews(cx);
-        self.notify(
-            t!(
-                "library.group.moved",
-                count = moved.len(),
-                target = target_name
-            ),
-            window,
-            cx,
-        );
+        if into {
+            // 옮긴 그룹이 대상 아래에 보이도록 펼쳐 둔다.
+            self.expanded_groups.insert(target_path.to_path_buf());
+            self.notify(
+                t!(
+                    "library.group.moved",
+                    count = moved.len(),
+                    target = target_name
+                ),
+                window,
+                cx,
+            );
+        } else {
+            cx.notify();
+        }
     }
 
     /// 그룹 안에서 선택한 시트를 옮기고 순서를 저장한다(ADR-0014, ADR-0019).

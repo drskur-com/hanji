@@ -463,8 +463,10 @@ impl HanjiApp {
             || matches!(current, Some(Selection::Group(selected)) if selected == path)
     }
 
-    /// 그룹 줄에 끌기·놓기 동작을 붙인다. 옮길 수 없는 줄(프로젝트 등)은 받기만 하지 않고,
-    /// 대상으로도 쓰지 않는다.
+    /// 그룹 줄에 끌기·놓기 동작을 붙인다.
+    ///
+    /// 줄의 위·아래 가장자리에 놓으면 그 그룹과 같은 레벨(앞·뒤)로, 가운데에 놓으면 그 그룹의
+    /// 하위로 옮긴다. 프로젝트 줄은 같은 레벨로만 받는다(위·아래 절반).
     pub(super) fn group_drag_handlers(
         &self,
         row: Stateful<Div>,
@@ -472,27 +474,83 @@ impl HanjiApp {
         pal: Palette,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let target_family = self.group_family(path);
-        let accepts = target_family.is_some() && self.group_is_movable(path);
-        let hover_target = path.to_path_buf();
+        let is_project = matches!(self.group_family(path), Some(GroupFamily::Project(_)));
+        let hint = self
+            .group_drop
+            .as_ref()
+            .filter(|(target, _)| target == path)
+            .map(|(_, place)| *place);
+        let move_target = path.to_path_buf();
         let drop_target = path.to_path_buf();
         let mut row = row
-            .drag_over::<DraggedGroups>(move |style, dragged, _, _| {
-                let inside_source = dragged.paths.iter().any(|source| {
-                    hover_target.starts_with(source) || source.starts_with(&hover_target)
-                });
-                if accepts && target_family.as_ref() == Some(&dragged.family) && !inside_source {
-                    style.bg(pal.active)
-                } else {
-                    style
-                }
-            })
+            .relative()
+            .when(hint == Some(GroupDrop::Into), |row| row.bg(pal.active))
+            .when_some(
+                hint.filter(|place| *place != GroupDrop::Into),
+                |row, place| {
+                    let line = div()
+                        .absolute()
+                        .left_2()
+                        .right_2()
+                        .h(px(2.0))
+                        .rounded_full()
+                        .bg(pal.tint);
+                    row.child(if place == GroupDrop::Before {
+                        line.top_0()
+                    } else {
+                        line.bottom_0()
+                    })
+                },
+            )
+            .on_drag_move(
+                cx.listener(move |this, event: &DragMoveEvent<DraggedGroups>, _, cx| {
+                    let bounds = event.bounds;
+                    let position = event.event.position;
+                    let next = if bounds.contains(&position) {
+                        let ratio = (position.y - bounds.top()) / bounds.size.height;
+                        let place = if is_project {
+                            if ratio < 0.5 {
+                                GroupDrop::Before
+                            } else {
+                                GroupDrop::After
+                            }
+                        } else if ratio < 0.25 {
+                            GroupDrop::Before
+                        } else if ratio > 0.75 {
+                            GroupDrop::After
+                        } else {
+                            GroupDrop::Into
+                        };
+                        let dragged = event.drag(cx);
+                        this.group_drop_allowed(&move_target, dragged, place)
+                            .then(|| (move_target.clone(), place))
+                    } else if this
+                        .group_drop
+                        .as_ref()
+                        .is_some_and(|(target, _)| *target == move_target)
+                    {
+                        None
+                    } else {
+                        return;
+                    };
+                    if this.group_drop != next {
+                        this.group_drop = next;
+                        cx.notify();
+                    }
+                }),
+            )
             .on_drop(
                 cx.listener(move |this, dragged: &DraggedGroups, window, cx| {
-                    this.move_groups_to(&drop_target, dragged, window, cx);
+                    let hint = this.group_drop.take();
+                    cx.notify();
+                    if let Some((target, place)) = hint
+                        && target == drop_target
+                    {
+                        this.move_groups(&drop_target, place, dragged, window, cx);
+                    }
                 }),
             );
-        if !self.group_is_movable(path) {
+        if !self.group_is_draggable(path) {
             return row;
         }
         let paths = self.drag_group_paths(path);
@@ -659,4 +717,15 @@ pub(super) fn menu_row(
         .when_some(color, |this, color| this.text_color(color))
         .child(Icon::new(icon).small())
         .child(label.into())
+}
+
+/// 끌고 있는 그룹을 대상 줄의 어디에 놓을지.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum GroupDrop {
+    /// 대상과 같은 레벨, 대상 바로 앞.
+    Before,
+    /// 대상 그룹의 하위(맨 뒤).
+    Into,
+    /// 대상과 같은 레벨, 대상 바로 뒤.
+    After,
 }

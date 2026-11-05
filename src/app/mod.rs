@@ -122,6 +122,8 @@ pub(crate) struct HanjiApp {
     selected_groups: Vec<PathBuf>,
     /// Shift+클릭으로 그룹을 넓힐 때 기준이 되는 그룹(마지막으로 그냥 누른 그룹).
     group_anchor: Option<PathBuf>,
+    /// 그룹을 끄는 동안 지금 놓일 자리(대상 줄, 앞/안/뒤). 줄에 자리 표시를 그린다.
+    group_drop: Option<(PathBuf, library_panel::GroupDrop)>,
     /// 시트를 끄는 중: (끄는 시트, 지금 올라가 있는 시트)의 목록 위치. 놓일 자리 표시에 쓴다.
     /// 끌기가 끝났는지는 `has_active_drag`로 본다.
     sheet_drop: Option<(usize, usize)>,
@@ -208,6 +210,7 @@ impl HanjiApp {
             selected_sheets: Vec::new(),
             selected_groups: Vec::new(),
             group_anchor: None,
+            group_drop: None,
             sheet_drop: None,
             previews: std::collections::HashMap::new(),
             preview_task: None,

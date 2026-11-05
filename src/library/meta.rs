@@ -613,6 +613,72 @@ pub fn move_group(source: &Path, target: &Path) -> io::Result<PathBuf> {
     Ok(dest)
 }
 
+/// `source` 그룹을 `anchor` 그룹과 같은 레벨(같은 부모)로 옮겨 `anchor` 바로 앞(`after`면 뒤)에 둔다.
+/// 새 경로를 돌려준다.
+///
+/// 부모가 같으면 폴더는 그대로 두고 부모 메타의 `groups` 순서만 바꾼다. 부모가 다르면 폴더를
+/// `anchor`의 부모로 옮기고(이름이 겹치면 " 2"…), 두 부모의 `groups`를 함께 쓴다. 메타 쓰기가
+/// 실패하면 폴더와 두 메타 파일을 원래대로 되돌린다.
+pub fn move_group_beside(source: &Path, anchor: &Path, after: bool) -> io::Result<PathBuf> {
+    if !source.is_dir() || !anchor.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            t!("core.error.group_not_found").into_owned(),
+        ));
+    }
+    if source == anchor || anchor.starts_with(source) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            t!("core.error.group_into_itself").into_owned(),
+        ));
+    }
+    let no_parent = || {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            t!("core.error.no_parent").into_owned(),
+        )
+    };
+    let parent = anchor.parent().ok_or_else(no_parent)?;
+    let source_parent = source.parent().ok_or_else(no_parent)?;
+    let source_name = file_name(source);
+    let anchor_name = file_name(anchor);
+
+    let insert = |order: &mut Vec<String>, name: String| {
+        order.retain(|existing| *existing != name);
+        let index = order
+            .iter()
+            .position(|existing| *existing == anchor_name)
+            .map_or(order.len(), |index| index + usize::from(after));
+        order.insert(index, name);
+    };
+
+    if source_parent == parent {
+        let mut order = group_order(parent)?;
+        insert(&mut order, source_name);
+        write_meta_list(parent, "groups", &order)?;
+        return Ok(source.to_path_buf());
+    }
+
+    let mut source_order = group_order(source_parent)?;
+    source_order.retain(|name| *name != source_name);
+    let dest = unique_dir_path(parent, &source_name);
+    let mut target_order = group_order(parent)?;
+    insert(&mut target_order, file_name(&dest));
+
+    let source_meta = std::fs::read(source_parent.join(GROUP_META_FILE)).ok();
+    let target_meta = std::fs::read(parent.join(GROUP_META_FILE)).ok();
+    std::fs::rename(source, &dest)?;
+    let written = write_meta_list(parent, "groups", &target_order)
+        .and_then(|()| write_meta_list(source_parent, "groups", &source_order));
+    if let Err(err) = written {
+        let _ = std::fs::rename(&dest, source);
+        restore_meta(source_parent, source_meta);
+        restore_meta(parent, target_meta);
+        return Err(err);
+    }
+    Ok(dest)
+}
+
 /// `parent/base` 중 아직 없는 경로. 같은 이름이 있으면 " 2", " 3"…을 붙인다.
 fn unique_dir_path(parent: &Path, base: &str) -> PathBuf {
     let mut n = 1;
@@ -1462,6 +1528,76 @@ mod tests {
         assert_eq!(target.groups.len(), 1);
         assert_eq!(target.groups[0].name, "장면");
         assert_eq!(target.groups[0].sheets.len(), 1);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn move_group_beside_reorders_and_moves_up_a_level() {
+        let root = temp_dir("move-group-beside");
+        initialize(&root).unwrap();
+        let projects = root.join(SectionKind::Projects.dir());
+        let project = create_project(&projects, "소설", None, None).unwrap();
+        let a = create_group(&project, "가", None, None).unwrap();
+        let b = create_group(&project, "나", None, None).unwrap();
+        let c = create_group(&project, "다", None, None).unwrap();
+        let child = create_group(&a, "하위", None, None).unwrap();
+
+        // 같은 부모: 폴더는 그대로, 순서만 바뀐다.
+        assert_eq!(move_group_beside(&c, &a, false).unwrap(), c);
+        assert_eq!(read_group_meta(&project).groups, vec!["다", "가", "나"]);
+        assert_eq!(move_group_beside(&c, &b, true).unwrap(), c);
+        assert_eq!(read_group_meta(&project).groups, vec!["가", "나", "다"]);
+
+        // 하위 그룹을 위 레벨로 꺼내 `나` 뒤에 둔다.
+        let moved = move_group_beside(&child, &b, true).unwrap();
+        assert_eq!(moved, project.join("하위"));
+        assert!(!child.exists());
+        assert_eq!(
+            read_group_meta(&project).groups,
+            vec!["가", "나", "하위", "다"]
+        );
+        assert!(read_group_meta(&a).groups.is_empty());
+
+        let library = scan(&root).unwrap();
+        let names: Vec<_> = library
+            .find_project(&project)
+            .unwrap()
+            .groups
+            .iter()
+            .map(|group| group.name.clone())
+            .collect();
+        assert_eq!(names, vec!["가", "나", "하위", "다"]);
+
+        // 자기 하위 옆으로는 옮길 수 없다.
+        let inner = create_group(&b, "속", None, None).unwrap();
+        assert!(move_group_beside(&b, &inner, false).is_err());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn projects_follow_section_meta_order() {
+        let root = temp_dir("project-order");
+        initialize(&root).unwrap();
+        let projects = root.join(SectionKind::Projects.dir());
+        let first = create_project(&projects, "가", None, None).unwrap();
+        create_project(&projects, "나", None, None).unwrap();
+        move_group_beside(&first, &projects.join("나"), true).unwrap();
+
+        let library = scan(&root).unwrap();
+        let names: Vec<_> = library
+            .section(SectionKind::Projects)
+            .unwrap()
+            .entries
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Group(group) => Some(group.name.clone()),
+                _ => None,
+            })
+            .collect();
+        let at = |name: &str| names.iter().position(|n| n == name).unwrap();
+        assert!(at("나") < at("가"));
 
         std::fs::remove_dir_all(&root).ok();
     }

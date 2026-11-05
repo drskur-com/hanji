@@ -39,8 +39,9 @@ pub use layout::{FolderKind, initialize, inspect};
 pub use manuscript::{ManuscriptSheet, manuscript_sheets};
 pub use meta::{
     adopt_project_dir, append_sheet, create_group, create_project, create_sheet, glue_sheets,
-    move_group, move_selected_sheets, move_sheet, move_sheets_between, move_to_trash, set_sort,
-    set_sort_descending, trash_sheets, unglue_sheets, update_group, update_project,
+    move_group, move_group_beside, move_selected_sheets, move_sheet, move_sheets_between,
+    move_to_trash, set_sort, set_sort_descending, trash_sheets, unglue_sheets, update_group,
+    update_project,
 };
 pub use preview::{Preview, read_preview};
 pub use search::{SearchHit, search_sheets};
@@ -478,7 +479,8 @@ fn scan_section(dir: &Path, kind: SectionKind) -> io::Result<Vec<Entry>> {
     }
 
     // 그룹을 먼저(이름순), 그 뒤 시트(최근 수정순).
-    groups.sort_by_key(|group| group.name.to_lowercase());
+    // 섹션 폴더의 메타 `groups`가 있으면 그 순서를 따른다(같은 레벨 끌어 옮기기).
+    sort_groups(&mut groups, &read_group_meta(dir));
     sort_recent_first(&mut sheets);
     let mut entries: Vec<Entry> = groups.into_iter().map(Entry::Group).collect();
     entries.extend(sheets.into_iter().map(Entry::Sheet));
