@@ -75,6 +75,7 @@ dmg_background = "examples/hello/dmg-background.svg"
 
 [features]
 windows-signing = ["dep:osslsigncode"]
+linux-signing = ["dep:sigstore"]
 
 [[bin]]
 name = "cargo-bundle"
@@ -198,6 +199,7 @@ version = "1.0.149"
 
 [dependencies.sigstore]
 version = "0.14.0"
+optional = true
 features = [
     "bundle",
     "native-tls",

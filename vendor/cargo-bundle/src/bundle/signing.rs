@@ -130,6 +130,16 @@ pub fn sign_linux_artifacts(
         return Ok(());
     };
 
+    #[cfg(not(feature = "linux-signing"))]
+    {
+        let _ = (config, artifact_paths);
+        Err(anyhow::anyhow!(
+            "Linux Sigstore signing was requested, but cargo-bundle was built without \
+             the `linux-signing` feature. Rebuild it with `--features linux-signing`."
+        ))
+    }
+
+    #[cfg(feature = "linux-signing")]
     {
         use sigstore::{bundle::sign::SigningContext, oauth::IdentityToken};
 
@@ -156,6 +166,7 @@ pub fn sign_linux_artifacts(
     }
 }
 
+#[cfg(feature = "linux-signing")]
 fn sign_linux_artifact(
     signer: &sigstore::bundle::sign::blocking::SigningSession<'_>,
     artifact_path: &Path,

@@ -11,6 +11,12 @@ Hanji는 macOS와 Windows용 마크다운 글쓰기 앱입니다. 메모와 원�
 - macOS (Apple Silicon): `Hanji-<버전>-arm64.dmg` — 서명·공증 완료
 - Windows (x64): `Hanji-<버전>-x64.msi`
 
+Windows에서는 winget으로도 설치할 수 있습니다. 브라우저로 내려받은 설치 파일과 달리 SmartScreen 경고가 표시되지 않습니다.
+
+```powershell
+winget install drskur.Hanji
+```
+
 앱을 시작할 때 새 버전을 확인합니다. 알림이나 메뉴의 **업데이트 확인…**에서 업데이트할 수 있습니다.
 
 ## 시작하기
@@ -76,7 +82,7 @@ mise bundle   # 설치용 번들 만들기 (macOS .app, Windows .msi)
 <details>
 <summary>개발자용 릴리스 절차</summary>
 
-릴리스는 `mise notarize`(macOS 공증) → `mise release`(플랫폼별 설치 파일을 초안 릴리스에 업로드) → `mise publish`(공개) 순서로 진행합니다.
+릴리스는 `mise notarize`(macOS 공증) → `mise release`(플랫폼별 설치 파일을 초안 릴리스에 업로드) → `mise publish`(공개) 순서로 진행합니다. Windows에서 `mise publish`를 실행하면 winget 매니페스트 업데이트 PR도 올립니다([wingetcreate](https://github.com/microsoft/winget-create) 필요, 첫 등록은 `wingetcreate new <MSI URL>`).
 
 </details>
 
