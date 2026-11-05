@@ -90,7 +90,7 @@ impl HanjiApp {
         cx: &mut Context<Self>,
     ) {
         let Some(editor) = &self.editor else { return };
-        editor.state().update(cx, |state, cx| {
+        let changed = editor.state().update(cx, |state, cx| {
             let text = state.value();
             let selected = state.selected_range();
             let (range, replacement, selection) =
@@ -110,12 +110,11 @@ impl HanjiApp {
                         range.start..end
                     };
                     (range, body, selection)
+                } else if selected.is_empty() {
+                    // 선택 없이 누르면(이미 서식 안이 아니면) 아무것도 하지 않는다. 자리 글자를 넣지 않는다.
+                    return false;
                 } else {
-                    let body = if selected.is_empty() {
-                        "텍스트"
-                    } else {
-                        &text[selected.clone()]
-                    };
+                    let body = &text[selected.clone()];
                     let start = selected.start + marker.len();
                     (
                         selected,
@@ -127,8 +126,11 @@ impl HanjiApp {
             state.replace(replacement, window, cx);
             state.set_selected_range(selection, cx);
             state.focus(window, cx);
+            true
         });
-        self.on_editor_changed(window, cx);
+        if changed {
+            self.on_editor_changed(window, cx);
+        }
     }
 
     /// 서식 메뉴의 문단 형식 항목: 지금 커서(선택)가 있는 줄들의 문단 형식을 바꾼다.
