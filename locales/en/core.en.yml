@@ -2,6 +2,8 @@ _version: 1
 # 라이브러리 핵심: 섹션·정렬 이름, 사용자에게 알리는 파일 오류(ADR-0027).
 core.section.notes: "Notes"
 core.section.projects: "Projects"
+core.group.templates: "Templates"
+core.group.attachments: "Attachments"
 core.stt: "Dictation"
 core.sort.manual: "Manual"
 core.sort.by_title: "By Title"

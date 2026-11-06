@@ -194,7 +194,7 @@ fn ensure_attachments(base_dir: &Path) -> io::Result<PathBuf> {
         return Ok(dir);
     }
     std::fs::create_dir_all(&dir)?;
-    write_group_meta_if_absent(&dir, Some("paperclip"), Some("첨부파일"))?;
+    write_group_meta_if_absent(&dir, Some("paperclip"), None)?;
     write_meta_values(&dir, [("kind", Some(toml::Value::String(files.into())))])?;
     // 메모 섹션 폴더는 그룹 순서를 두지 않는다(이름순).
     if is_notes_dir(base_dir) {
@@ -305,11 +305,11 @@ mod tests {
         assert!(!attachments.join(".cover.tmp").exists());
         assert!(set_cover(&dir, &root.join("메모.txt")).is_err());
 
-        // 추가자료에서 템플릿 뒤에 "첨부파일"로 보인다.
+        // 추가자료에서 템플릿 뒤에 첨부파일로 보인다(이름은 UI 언어, 테스트는 영어).
         let library = scan(&root).unwrap();
         let project = library.find_project(&dir).unwrap();
         let extras: Vec<_> = project.extras.iter().map(|g| g.name.as_str()).collect();
-        assert_eq!(extras, vec!["템플릿", "첨부파일"]);
+        assert_eq!(extras, vec!["Templates", "Attachments"]);
 
         std::fs::remove_dir_all(&root).ok();
     }
@@ -356,7 +356,7 @@ mod tests {
         let library = crate::library::scan(&root).unwrap();
         let group = library.find_group(&notes.join(ATTACHMENTS_GROUP)).unwrap();
         assert_eq!(group.kind, GroupKind::Files);
-        assert_eq!(group.name, "첨부파일");
+        assert_eq!(group.name, "Attachments");
         assert_eq!(group.files.len(), 2);
         // 첨부파일 그룹은 색을 고르지 않아도 다른 그룹과 다른 색으로 보인다.
         assert_eq!(group.display_color(), Some("cyan"));

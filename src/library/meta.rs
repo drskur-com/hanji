@@ -295,7 +295,7 @@ fn unique_sheet_path(
     let stem = source
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "무제".to_string());
+        .unwrap_or_else(|| t!("library.untitled").into_owned());
     let extension = source
         .extension()
         .map(|extension| format!(".{}", extension.to_string_lossy()))
@@ -516,7 +516,7 @@ pub(super) fn ensure_project_layout(project_dir: &Path) -> io::Result<()> {
     }
     let templates = extras.join(TEMPLATES_GROUP);
     std::fs::create_dir_all(&templates)?;
-    write_group_meta_if_absent(&templates, Some("layout-template"), Some("템플릿"))
+    write_group_meta_if_absent(&templates, Some("layout-template"), None)
 }
 
 /// 메모 첨부파일 자리(`Notes/Attachments`)의 이름인지. 시트 그룹이 이 이름을 쓰면 첨부할 때
@@ -764,7 +764,7 @@ pub fn adopt_project_dir(projects_dir: &Path, staged: &Path, name: &str) -> io::
     }
 }
 
-/// 프로젝트 이름 → 폴더 이름: 경로 구분자를 `-`로 바꾸고, 앞의 `.`(숨김)을 떼고, 비면 "무제".
+/// 프로젝트 이름 → 폴더 이름: 경로 구분자를 `-`로 바꾸고, 앞의 `.`(숨김)을 떼고, 비면 "무제"(UI 언어).
 fn project_dir_name(name: &str) -> String {
     let base: String = name
         .trim()
@@ -779,7 +779,7 @@ fn project_dir_name(name: &str) -> String {
         .collect();
     let base = base.trim_start_matches('.').trim();
     if base.is_empty() {
-        "무제".to_string()
+        t!("library.untitled").into_owned()
     } else {
         base.to_string()
     }
@@ -868,7 +868,13 @@ pub fn update_group(
         write_meta_values(
             dir,
             [
-                ("title", text(name.trim())),
+                // 기본 이름 그대로면 적지 않는다(언어를 바꾸면 이름도 따라 바뀌게).
+                (
+                    "title",
+                    Some(name.trim())
+                        .filter(|name| !super::is_default_group_title(dir, name))
+                        .and_then(text),
+                ),
                 ("icon", icon.and_then(text)),
                 ("color", color.and_then(text)),
             ],
@@ -1025,6 +1031,19 @@ mod tests {
         assert_eq!(meta.title.as_deref(), Some("양식"));
         assert_eq!(meta.icon, None);
         assert_eq!(meta.color.as_deref(), Some("blue"));
+        // 기본 이름(어느 언어든)으로 되돌리면 `title`을 지워 UI 언어를 따르게 한다.
+        update_group(&templates, "템플릿", None, None).unwrap();
+        assert_eq!(read_group_meta(&templates).title, None);
+
+        // 예전 버전이 적은 한국어 기본 이름도 UI 언어 이름으로 보인다.
+        write_meta_values(
+            &templates,
+            [("title", Some(toml::Value::String("템플릿".into())))],
+        )
+        .unwrap();
+        let library = crate::library::scan(&root).unwrap();
+        let project = library.find_project(&dir).unwrap();
+        assert_eq!(project.extras[0].name, "Templates");
 
         std::fs::remove_dir_all(&root).ok();
     }
@@ -1091,7 +1110,7 @@ mod tests {
 
         // 새 프로젝트는 기본 추가자료(템플릿)를 갖고, 새 추가자료는 그 뒤에 붙는다.
         let extras: Vec<_> = project.extras.iter().map(|g| g.name.as_str()).collect();
-        assert_eq!(extras, vec!["템플릿", "등장인물"]);
+        assert_eq!(extras, vec!["Templates", "등장인물"]);
         assert_eq!(
             library.find_group(&people).unwrap().icon.as_deref(),
             Some("folder")
@@ -1132,7 +1151,7 @@ mod tests {
         assert_eq!(second, projects.join("소설-1부 2"));
         assert_eq!(
             create_project(&projects, "  ", None, None).unwrap(),
-            projects.join("무제")
+            projects.join(t!("library.untitled").as_ref())
         );
 
         let library = scan(&root).unwrap();

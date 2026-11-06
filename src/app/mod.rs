@@ -157,6 +157,8 @@ pub(crate) struct HanjiApp {
     _theme_subscription: Subscription,
     /// 라이브러리 폴더 감시(watcher + 변경 시 다시 스캔하는 태스크). 버리면 멈춘다.
     watcher: Option<(notify::RecommendedWatcher, Task<()>)>,
+    /// 라이브러리를 읽을 때의 UI 언어. 바뀌면 다시 읽는다(기본 그룹 이름).
+    ui_locale: String,
     /// 앱 루트의 포커스. 시트를 열지 않아 포커스된 요소가 없어도 메뉴 액션이 이 뷰로 오게 한다.
     focus: FocusHandle,
     #[cfg(not(target_os = "macos"))]
@@ -185,6 +187,14 @@ impl HanjiApp {
                 // 언어가 바뀌었을 수 있다(메뉴는 `i18n::apply`가 다시 설치한다).
                 #[cfg(not(target_os = "macos"))]
                 this.menu_bar.update(cx, |menu_bar, cx| menu_bar.reload(cx));
+                // 기본 그룹(템플릿·첨부파일) 이름은 읽을 때 정하므로 언어가 바뀌면 다시 읽는다.
+                let locale = rust_i18n::locale().to_string();
+                if locale != this.ui_locale {
+                    this.ui_locale = locale;
+                    if let Some(root) = this.library.as_ref().map(|lib| lib.root.clone()) {
+                        this.apply_scan(&root, library::scan(&root), window, cx);
+                    }
+                }
                 cx.notify();
             });
         let theme_subscription = cx.observe_global::<Theme>(|this, cx| this.after_theme_change(cx));
@@ -227,6 +237,7 @@ impl HanjiApp {
             _prefs_subscription: prefs_subscription,
             _theme_subscription: theme_subscription,
             watcher: None,
+            ui_locale: rust_i18n::locale().to_string(),
             focus: cx.focus_handle(),
             #[cfg(not(target_os = "macos"))]
             menu_bar: AppMenuBar::new(cx),

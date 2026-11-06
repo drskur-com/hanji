@@ -107,6 +107,40 @@ pub fn is_reserved_group(dir: &Path) -> bool {
     name == ATTACHMENTS_GROUP && is_notes_dir(parent)
 }
 
+/// 기본 그룹(`is_reserved_group`)의 표시 이름 키. 이름은 UI 언어를 따른다.
+fn reserved_group_key(dir: &Path) -> Option<&'static str> {
+    if !is_reserved_group(dir) {
+        return None;
+    }
+    match dir.file_name()?.to_str()? {
+        TEMPLATES_GROUP => Some("core.group.templates"),
+        _ => Some("core.group.attachments"),
+    }
+}
+
+/// 기본 그룹의 지금 언어 이름. 기본 그룹이 아니면 `None`.
+pub(crate) fn reserved_group_title(dir: &Path) -> Option<String> {
+    reserved_group_key(dir).map(|key| t!(key).into_owned())
+}
+
+/// `title`이 기본 그룹의 기본 이름(어느 언어든)인지. 예전 버전은 한국어 이름을 메타에 적었다.
+pub(crate) fn is_default_group_title(dir: &Path, title: &str) -> bool {
+    reserved_group_key(dir).is_some_and(|key| {
+        crate::i18n::Language::ALL
+            .iter()
+            .filter(|language| language.key().is_some())
+            .any(|language| t!(key, locale = language.locale()) == title)
+    })
+}
+
+/// 그룹 표시 이름: 메타의 `title`, 없거나 기본 이름이면 기본 그룹은 지금 언어 이름, 그 밖은 폴더 이름.
+fn group_title(dir: &Path, title: Option<String>) -> String {
+    match title {
+        Some(title) if !is_default_group_title(dir, &title) => title,
+        _ => reserved_group_title(dir).unwrap_or_else(|| file_name(dir)),
+    }
+}
+
 /// 라이브러리 최상위 섹션.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum SectionKind {
@@ -543,7 +577,7 @@ fn scan_group(dir: &Path, project: bool) -> io::Result<Group> {
     };
 
     Ok(Group {
-        name: meta.title.unwrap_or_else(|| file_name(dir)),
+        name: group_title(dir, meta.title),
         path: dir.to_path_buf(),
         icon: meta.icon,
         color: meta.color,
