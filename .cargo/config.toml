@@ -1,4 +1,8 @@
-# [target.x86_64-pc-windows-msvc]
+[target.x86_64-pc-windows-msvc]
+# MSVC 런타임(vcruntime140.dll 등)을 exe에 정적으로 넣는다. 동적으로 링크하면 VC++ 재배포 패키지가 없는
+# PC(winget 검증 VM 포함)에서 STATUS_DLL_NOT_FOUND(0xC0000135)로 실행조차 되지 않는다.
+# cc·cmake 크레이트도 이 설정을 보고 C/C++ 의존성을 /MT로 빌드한다.
+rustflags = ["-C", "target-feature=+crt-static"]
 # linker = "lld-link"
 
 # [build]
