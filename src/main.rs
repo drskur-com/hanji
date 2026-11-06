@@ -13,11 +13,11 @@ use gpui_kit::component::*;
 use gpui_kit::gpui::*;
 
 mod agent;
+mod agent_cli;
 mod app;
 mod assets;
 mod aws_profiles;
 mod cache;
-mod claude_code;
 mod config;
 mod dictation;
 mod dock_icon;

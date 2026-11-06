@@ -1,7 +1,9 @@
 //! ACP(Agent Client Protocol) 클라이언트(ADR-0057). 에이전트가 보내는 알림과 권한 질문을 어시스턴트 패널의
 //! [`ChatEvent`]로 바꾼다. 에이전트는 앱 안의 어댑터([`claude`])이거나, 나중에 stdio로 띄운 ACP 에이전트다.
 
+mod adapter;
 pub mod claude;
+pub mod codex;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -191,28 +193,39 @@ async fn ask_permission(
         ])
         .unwrap_or(RequestPermissionOutcome::Cancelled)
     };
-    let diff =
-        request
-            .tool_call
-            .fields
-            .content
-            .iter()
-            .flatten()
-            .find_map(|content| match content {
-                ToolCallContent::Diff(diff) => Some(diff),
-                _ => None,
-            });
-    let Some(diff) = diff else {
+    let diffs: Vec<_> = request
+        .tool_call
+        .fields
+        .content
+        .iter()
+        .flatten()
+        .filter_map(|content| match content {
+            ToolCallContent::Diff(diff) => Some(diff),
+            _ => None,
+        })
+        .collect();
+    let Some(first) = diffs.first() else {
         return reject();
+    };
+    let lines_of = |diff: &agent_client_protocol::v1::schema::Diff| match &diff.old_text {
+        Some(before) => diff::diff(before, &diff.new_text),
+        None => diff::added(&diff.new_text),
     };
     let id = super::bedrock::next_change_id();
     let card = ChangeCard {
         id,
-        path: relative(root, &diff.path),
-        new_file: diff.old_text.is_none(),
-        lines: match &diff.old_text {
-            Some(before) => diff::diff(before, &diff.new_text),
-            None => diff::added(&diff.new_text),
+        path: relative(root, &first.path),
+        new_file: diffs.iter().all(|diff| diff.old_text.is_none()),
+        // 파일이 여럿이면(Codex의 패치 하나) 파일마다 머리줄을 둔다.
+        lines: if diffs.len() == 1 {
+            lines_of(first)
+        } else {
+            diffs
+                .iter()
+                .flat_map(|diff| {
+                    std::iter::once(diff::file(&relative(root, &diff.path))).chain(lines_of(diff))
+                })
+                .collect()
         },
         state: ChangeState::Pending,
     };
@@ -248,6 +261,7 @@ fn tool_line(kind: ToolKind, target: &str) -> Option<String> {
             Some(name) => t!("assistant.tool.skill", name = name).to_string(),
             None => format!("{} · {target}", t!("assistant.tool.read")),
         }),
+        ToolKind::Search if target.is_empty() => Some(t!("assistant.tool.listed").to_string()),
         ToolKind::Search => Some(format!("{} · {target}", t!("assistant.tool.listed"))),
         _ => None,
     }
@@ -359,10 +373,13 @@ mod live {
     use super::*;
     use futures::StreamExt as _;
 
-    #[test]
-    #[ignore]
-    fn claude_code_end_to_end() {
-        let root = std::env::temp_dir().join(format!("hanji-acp-live-{}", std::process::id()));
+    /// 임시 라이브러리에서 말을 보내고 승인을 모두 허락한다. 시트가 고쳐졌는지와 앞의 말을 기억했는지 본다.
+    fn end_to_end(backend: crate::agent::Backend, tools: crate::agent::AgentTools) {
+        let root = std::env::temp_dir().join(format!(
+            "hanji-acp-live-{}-{}",
+            backend.models_key(),
+            std::process::id()
+        ));
         std::fs::create_dir_all(root.join("Skills/shout")).unwrap();
         std::fs::write(root.join("sheet.md"), "# Sheet\n\nhello world\n").unwrap();
         std::fs::write(
@@ -371,29 +388,20 @@ mod live {
         )
         .unwrap();
         let workspace = crate::agent::Workspace::new(&root);
-        let system = crate::agent::agent_system_prompt(None, workspace.skills());
+        let system = crate::agent::agent_system_prompt(None, tools, workspace.skills());
+        let turn = |user: bool, text: &str| Turn {
+            user,
+            text: text.into(),
+            ..Turn::default()
+        };
         let request = crate::agent::ChatRequest {
-            backend: crate::agent::Backend::ClaudeCode {
-                model: "haiku".into(),
-            },
+            backend,
             workspace: Some(workspace),
             system,
             turns: vec![
-                Turn {
-                    user: true,
-                    text: "My name is Mina.".into(),
-                    ..Turn::default()
-                },
-                Turn {
-                    user: false,
-                    text: "Hi Mina.".into(),
-                    ..Turn::default()
-                },
-                Turn {
-                    user: true,
-                    text: "Shout my name, and change hello to hi in sheet.md.".into(),
-                    ..Turn::default()
-                },
+                turn(true, "My name is Mina."),
+                turn(false, "Hi Mina."),
+                turn(true, "Shout my name, and change hello to hi in sheet.md."),
             ],
             allowed_sites: Default::default(),
         };
@@ -405,7 +413,7 @@ mod live {
                     ChatEvent::Text(chunk) => text.push_str(&chunk),
                     ChatEvent::Approve(approval) => {
                         eprintln!(
-                            "APPROVE {} new={} {:?}",
+                            "APPROVE {} new={} lines={}",
                             approval.card.path,
                             approval.card.new_file,
                             approval.card.lines.len()
@@ -423,5 +431,38 @@ mod live {
         std::fs::remove_dir_all(&root).ok();
         assert!(sheet.contains("hi world"), "{sheet}");
         assert!(text.to_lowercase().contains("mina"), "{text}");
+    }
+
+    #[test]
+    #[ignore]
+    fn claude_code_end_to_end() {
+        end_to_end(
+            crate::agent::Backend::ClaudeCode {
+                model: "haiku".into(),
+            },
+            crate::agent::AgentTools::ClaudeCode,
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn codex_models() {
+        let models = crate::agent::bedrock::runtime()
+            .block_on(codex::list_models())
+            .unwrap();
+        eprintln!("MODELS {models:?}");
+        assert!(!models.is_empty());
+    }
+
+    /// `cargo test --bin hanji codex_end_to_end -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn codex_end_to_end() {
+        end_to_end(
+            crate::agent::Backend::Codex {
+                model: String::new(),
+            },
+            crate::agent::AgentTools::Codex,
+        );
     }
 }

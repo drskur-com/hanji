@@ -144,14 +144,14 @@ fn image_placement(backend: &Backend) -> ImagePlacement {
             Some(model) if !model.vision => ImagePlacement::None,
             _ => ImagePlacement::AfterToolResults,
         },
-        Backend::ClaudeCode { .. } => ImagePlacement::None,
+        Backend::ClaudeCode { .. } | Backend::Codex { .. } => ImagePlacement::None,
     }
 }
 
 /// 한 번의 답에 쓸 최대 출력 토큰. 모델의 상한을 넘겨 부르면 거절한다.
 pub(super) fn max_tokens(backend: &Backend) -> u64 {
     match backend {
-        Backend::Bedrock { .. } | Backend::ClaudeCode { .. } => MAX_TOKENS,
+        Backend::Bedrock { .. } | Backend::ClaudeCode { .. } | Backend::Codex { .. } => MAX_TOKENS,
         Backend::TokenPlan { model, .. } => {
             token_plan::find(model).map_or(MAX_TOKENS, |model| model.max_output.min(MAX_TOKENS))
         }
@@ -175,7 +175,9 @@ pub(super) fn completion_model(backend: &Backend) -> DynModel<Completion> {
         Backend::TokenPlan { api_key, model } => token_plan::completion_model(api_key, model),
         // 에이전트는 rig로 부르지 않는다: 어시스턴트는 ACP로 가고(`stream`), 모델 한 번 부르기는
         // `Backend::llm_from_prefs`로 에이전트를 거른다.
-        Backend::ClaudeCode { .. } => unreachable!("에이전트 제공자는 rig 모델이 없다"),
+        Backend::ClaudeCode { .. } | Backend::Codex { .. } => {
+            unreachable!("에이전트 제공자는 rig 모델이 없다")
+        }
     }
 }
 
@@ -388,6 +390,7 @@ pub fn stream(request: ChatRequest) -> mpsc::UnboundedReceiver<ChatEvent> {
     runtime().spawn(async move {
         let result = match &request.backend {
             Backend::ClaudeCode { model } => run_claude_code(&request, model, &tx).await,
+            Backend::Codex { model } => run_codex(&request, model, &tx).await,
             _ => run(&request, &tx).await,
         };
         if let Some(workspace) = &request.workspace {
@@ -402,31 +405,47 @@ pub fn stream(request: ChatRequest) -> mpsc::UnboundedReceiver<ChatEvent> {
     rx
 }
 
+/// 에이전트가 일할 라이브러리 루트와 보낼 말.
+fn agent_prompt(request: &ChatRequest) -> Result<super::acp::Prompt, String> {
+    let cwd = request
+        .workspace
+        .as_ref()
+        .map(|workspace| workspace.root().to_path_buf())
+        .ok_or_else(|| t!("assistant.error.agent_needs_library").to_string())?;
+    Ok(super::acp::Prompt {
+        cwd,
+        turns: request.turns.clone(),
+    })
+}
+
 /// Claude Code(ACP 어댑터, ADR-0057)로 답을 받는다. 라이브러리 루트에서 일한다.
 async fn run_claude_code(
     request: &ChatRequest,
     model: &str,
     tx: &mpsc::UnboundedSender<ChatEvent>,
 ) -> Result<(), String> {
-    let root = request
-        .workspace
-        .as_ref()
-        .map(|workspace| workspace.root().to_path_buf())
-        .ok_or_else(|| t!("assistant.error.agent_needs_library").to_string())?;
+    let prompt = agent_prompt(request)?;
     let agent = super::acp::claude::ClaudeCode {
         path: crate::config::Config::load().claude_code_path,
         model: model.to_string(),
         system: request.system.clone(),
     };
-    super::acp::run(
-        agent.into_agent(),
-        super::acp::Prompt {
-            cwd: root,
-            turns: request.turns.clone(),
-        },
-        tx,
-    )
-    .await
+    super::acp::run(agent.into_agent(), prompt, tx).await
+}
+
+/// Codex(ACP 어댑터, ADR-0057)로 답을 받는다. 라이브러리 루트에서 일한다.
+async fn run_codex(
+    request: &ChatRequest,
+    model: &str,
+    tx: &mpsc::UnboundedSender<ChatEvent>,
+) -> Result<(), String> {
+    let prompt = agent_prompt(request)?;
+    let agent = super::acp::codex::Codex {
+        path: crate::config::Config::load().codex_path,
+        model: (!model.is_empty()).then(|| model.to_string()),
+        system: request.system.clone(),
+    };
+    super::acp::run(agent.into_agent(), prompt, tx).await
 }
 
 /// 사용자가 변경을 거절했을 때 모델에 돌려줄 글.

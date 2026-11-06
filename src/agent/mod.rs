@@ -21,7 +21,7 @@ mod web;
 pub use bedrock::{ChatRequest, stream};
 pub use diff::{DiffLine, LineKind};
 pub use history::{History, Summary, now_millis};
-pub use prompt::{Sheet, agent_system_prompt, system_prompt};
+pub use prompt::{AgentTools, Sheet, agent_system_prompt, system_prompt};
 pub use review::PASS_SCORE;
 pub use tools::Workspace;
 
@@ -184,6 +184,11 @@ pub enum Backend {
         /// 모델 별칭(`sonnet`·`opus`·`haiku`).
         model: String,
     },
+    /// 설치된 Codex CLI(에이전트, ADR-0057). 모델 한 번 부르기에는 쓰지 않는다.
+    Codex {
+        /// 모델 ID. 비었으면 Codex 설정의 기본 모델.
+        model: String,
+    },
 }
 
 /// API 키는 기록(로그)에 남기지 않는다.
@@ -207,6 +212,7 @@ impl std::fmt::Debug for Backend {
             Backend::ClaudeCode { model } => {
                 f.debug_struct("ClaudeCode").field("model", model).finish()
             }
+            Backend::Codex { model } => f.debug_struct("Codex").field("model", model).finish(),
         }
     }
 }
@@ -238,6 +244,13 @@ impl Backend {
                     .as_ref()
                     .map_or_else(|| acp::claude::MODELS[0].0.to_string(), ToString::to_string),
             }),
+            AiProvider::Codex => Some(Self::Codex {
+                model: prefs
+                    .codex_model
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            }),
         }
     }
 
@@ -248,7 +261,16 @@ impl Backend {
 
     /// 스스로 도구를 부르는 에이전트(ACP, ADR-0057)인지.
     pub fn is_agent(&self) -> bool {
-        matches!(self, Backend::ClaudeCode { .. })
+        self.agent_tools().is_some()
+    }
+
+    /// 에이전트면 그 에이전트가 쓰는 도구(지시가 다르다).
+    pub fn agent_tools(&self) -> Option<AgentTools> {
+        match self {
+            Backend::ClaudeCode { .. } => Some(AgentTools::ClaudeCode),
+            Backend::Codex { .. } => Some(AgentTools::Codex),
+            _ => None,
+        }
     }
 
     /// 같은 곳에서 다른 모델(`model` ID)을 부른다.
@@ -256,7 +278,8 @@ impl Backend {
         match &mut self {
             Backend::Bedrock { model: current, .. }
             | Backend::TokenPlan { model: current, .. }
-            | Backend::ClaudeCode { model: current } => {
+            | Backend::ClaudeCode { model: current }
+            | Backend::Codex { model: current } => {
                 *current = model;
             }
         }
@@ -270,7 +293,7 @@ impl Backend {
         match self {
             Backend::Bedrock { .. } => true,
             Backend::TokenPlan { .. } => token_plan::find(id).is_none_or(|model| model.vision),
-            Backend::ClaudeCode { .. } => true,
+            Backend::ClaudeCode { .. } | Backend::Codex { .. } => true,
         }
     }
 
@@ -279,7 +302,8 @@ impl Backend {
         match self {
             Backend::Bedrock { model, .. }
             | Backend::TokenPlan { model, .. }
-            | Backend::ClaudeCode { model } => model,
+            | Backend::ClaudeCode { model }
+            | Backend::Codex { model } => model,
         }
     }
 
@@ -291,6 +315,7 @@ impl Backend {
             } => format!("bedrock/{profile}/{}", region.as_deref().unwrap_or("")),
             Backend::TokenPlan { .. } => "token-plan".to_string(),
             Backend::ClaudeCode { .. } => "claude-code".to_string(),
+            Backend::Codex { .. } => "codex".to_string(),
         }
     }
 
@@ -314,6 +339,7 @@ impl Backend {
                 profile, region, ..
             } => bedrock::list_models(profile, region.clone()).await,
             Backend::TokenPlan { api_key, .. } => token_plan::list_models(api_key).await,
+            Backend::Codex { .. } => acp::codex::list_models().await,
             Backend::ClaudeCode { .. } => {
                 // 한 번 써 본 별칭은 실제 모델의 이름(버전 포함)으로 보인다.
                 let resolved = crate::config::Config::load().claude_code_models;

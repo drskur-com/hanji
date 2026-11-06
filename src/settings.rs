@@ -20,9 +20,9 @@ use gpui_kit::component::{
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::*;
 
+use crate::agent_cli::{self, Cli};
 use crate::app::style::{PANEL_INSET, Palette, TOOLBAR_HEIGHT, window_drag_area};
 use crate::aws_profiles::{self, AwsProfile};
-use crate::claude_code;
 use crate::config::{Config, DictationConfig};
 use crate::dictation::{self, ModelStore};
 use crate::i18n::{self, Language};
@@ -60,6 +60,8 @@ pub struct Prefs {
     pub token_plan_model: Option<SharedString>,
     /// 어시스턴트가 부를 Claude Code 모델 별칭. 어시스턴트 패널에서 고른다.
     pub claude_code_model: Option<SharedString>,
+    /// 어시스턴트가 부를 Codex 모델 ID. 없으면 Codex의 기본 모델. 어시스턴트 패널에서 고른다.
+    pub codex_model: Option<SharedString>,
     /// UI 언어(ADR-0027).
     pub language: Language,
 }
@@ -75,11 +77,14 @@ pub enum AiProvider {
     TokenPlan,
     /// 이 머신에 설치된 Claude Code CLI(`claude`, 그 로그인으로 부른다).
     ClaudeCode,
+    /// 이 머신에 설치된 Codex CLI(`codex`, 그 로그인·제공자 설정으로 부른다).
+    Codex,
 }
 
 impl AiProvider {
-    const ALL: [AiProvider; 3] = [
+    const ALL: [AiProvider; 4] = [
         AiProvider::ClaudeCode,
+        AiProvider::Codex,
         AiProvider::Bedrock,
         AiProvider::TokenPlan,
     ];
@@ -90,6 +95,7 @@ impl AiProvider {
             AiProvider::Bedrock => "bedrock",
             AiProvider::TokenPlan => "alibaba-token-plan",
             AiProvider::ClaudeCode => "claude-code",
+            AiProvider::Codex => "codex",
         }
     }
 
@@ -102,6 +108,16 @@ impl AiProvider {
             AiProvider::Bedrock => "Amazon Bedrock",
             AiProvider::TokenPlan => "Alibaba Token Plan",
             AiProvider::ClaudeCode => "Claude Code",
+            AiProvider::Codex => "Codex",
+        }
+    }
+
+    /// 에이전트 CLI 제공자면 그 CLI(ADR-0057).
+    pub fn cli(self) -> Option<Cli> {
+        match self {
+            AiProvider::ClaudeCode => Some(Cli::ClaudeCode),
+            AiProvider::Codex => Some(Cli::Codex),
+            _ => None,
         }
     }
 }
@@ -122,6 +138,7 @@ impl Prefs {
             token_plan_key: config.token_plan_api_key.clone().map(SharedString::from),
             token_plan_model: config.token_plan_model.clone().map(SharedString::from),
             claude_code_model: config.claude_code_model.clone().map(SharedString::from),
+            codex_model: config.codex_model.clone().map(SharedString::from),
             language: Language::from_key(config.language.as_deref()),
         });
         rust_i18n::set_locale(cx.global::<Prefs>().language.locale());
@@ -211,6 +228,7 @@ impl Prefs {
         let saved = match provider {
             Some(AiProvider::TokenPlan) => &mut prefs.token_plan_model,
             Some(AiProvider::ClaudeCode) => &mut prefs.claude_code_model,
+            Some(AiProvider::Codex) => &mut prefs.codex_model,
             _ => &mut prefs.ai_model,
         };
         if *saved == model {
@@ -222,6 +240,7 @@ impl Prefs {
         match provider {
             Some(AiProvider::TokenPlan) => config.token_plan_model = model,
             Some(AiProvider::ClaudeCode) => config.claude_code_model = model,
+            Some(AiProvider::Codex) => config.codex_model = model,
             _ => config.ai_model = model,
         }
         if let Err(err) = config.save() {
@@ -472,9 +491,9 @@ struct SettingsWindow {
     token_plan_key: Entity<InputState>,
     /// 창을 열 때 읽은 AWS 프로필.
     aws_profiles: Vec<AwsProfile>,
-    /// Claude Code를 찾은 결과. Claude Code를 고르면 찾는다.
-    claude_code: ClaudeCodeStatus,
-    _claude_code_lookup: Option<Task<()>>,
+    /// 에이전트 CLI를 찾은 결과(어느 CLI인지와 상태). 에이전트 제공자를 고르면 찾는다.
+    cli: Option<(Cli, CliStatus)>,
+    _cli_lookup: Option<Task<()>>,
     /// 받아쓰기 모델 캐시와 내려받기(앱 전역).
     model_store: Entity<ModelStore>,
     /// 받아쓰기의 LLM 옵션(ADR-0055). 바꾸면 `config.toml`에 저장한다.
@@ -492,12 +511,10 @@ struct SettingsWindow {
     _subscriptions: Vec<Subscription>,
 }
 
-/// Claude Code 찾기 상태.
-enum ClaudeCodeStatus {
-    /// 아직 찾지 않았다.
-    Unchecked,
+/// 에이전트 CLI 찾기 상태.
+enum CliStatus {
     Detecting,
-    Found(claude_code::Install),
+    Found(agent_cli::Install),
     NotFound,
 }
 
@@ -887,7 +904,7 @@ impl SettingsWindow {
                     *this = Self::new(window, cx);
                     this.page = page;
                 }
-                this.detect_claude_code(false, window, cx);
+                this.detect_cli(false, window, cx);
                 // AI 제공자·프로필이 바뀌면 받아쓰기 모델 목록을 다시 읽는다.
                 if this.page == Page::Dictation {
                     this.load_dictation_models(window, cx);
@@ -909,8 +926,8 @@ impl SettingsWindow {
             region_picker,
             token_plan_key,
             aws_profiles,
-            claude_code: ClaudeCodeStatus::Unchecked,
-            _claude_code_lookup: None,
+            cli: None,
+            _cli_lookup: None,
             model_store,
             dictation,
             summary_language_picker,
@@ -922,30 +939,31 @@ impl SettingsWindow {
             _dictation_model_lookup: None,
             _subscriptions: subscriptions,
         };
-        this.detect_claude_code(false, window, cx);
+        this.detect_cli(false, window, cx);
         this
     }
 
-    /// Claude Code를 고른 상태면 설치된 `claude`를 찾는다. `force`가 아니면 이미 찾았을 때 그대로 둔다.
-    fn detect_claude_code(&mut self, force: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if cx.global::<Prefs>().ai_provider != Some(AiProvider::ClaudeCode) {
+    /// 에이전트 제공자를 고른 상태면 그 CLI를 찾는다. `force`가 아니면 이미 그 CLI를 찾았을 때 그대로 둔다.
+    fn detect_cli(&mut self, force: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(cli) = cx.global::<Prefs>().ai_provider.and_then(AiProvider::cli) else {
+            return;
+        };
+        if !force && self.cli.as_ref().is_some_and(|(found, _)| *found == cli) {
             return;
         }
-        if !force && !matches!(self.claude_code, ClaudeCodeStatus::Unchecked) {
-            return;
-        }
-        self.claude_code = ClaudeCodeStatus::Detecting;
-        let override_path = Config::load().claude_code_path;
+        self.cli = Some((cli, CliStatus::Detecting));
+        let override_path = cli.configured_path(&Config::load());
         let lookup = cx
             .background_executor()
-            .spawn(async move { claude_code::detect(override_path.as_deref()) });
-        self._claude_code_lookup = Some(cx.spawn_in(window, async move |this, cx| {
+            .spawn(async move { agent_cli::detect(cli, override_path.as_deref()) });
+        self._cli_lookup = Some(cx.spawn_in(window, async move |this, cx| {
             let found = lookup.await;
             this.update(cx, |this, cx| {
-                this.claude_code = match found {
-                    Some(install) => ClaudeCodeStatus::Found(install),
-                    None => ClaudeCodeStatus::NotFound,
+                let status = match found {
+                    Some(install) => CliStatus::Found(install),
+                    None => CliStatus::NotFound,
                 };
+                this.cli = Some((cli, status));
                 cx.notify();
             })
             .ok();
@@ -1341,42 +1359,49 @@ impl SettingsWindow {
                         ),
                 )
             })
-            .when(prefs.ai_provider == Some(AiProvider::ClaudeCode), |this| {
-                this.child(self.render_claude_code(cx, pal))
+            .when_some(prefs.ai_provider.and_then(AiProvider::cli), |this, cli| {
+                this.child(self.render_cli(cli, cx, pal))
             })
     }
 
-    /// Claude Code: 찾은 `claude`의 경로와 버전, 못 찾았으면 설치 안내.
-    fn render_claude_code(&self, cx: &mut Context<Self>, pal: Palette) -> impl IntoElement {
+    /// 에이전트 CLI: 찾은 실행 파일의 경로와 버전, 못 찾았으면 설치 안내.
+    fn render_cli(&self, cli: Cli, cx: &mut Context<Self>, pal: Palette) -> impl IntoElement {
         let hint = |text: SharedString| div().text_sm().text_color(pal.muted).child(text);
+        let name = cli.title();
+        let program = cli.program();
+        let state = self
+            .cli
+            .as_ref()
+            .filter(|(found, _)| *found == cli)
+            .map(|(_, state)| state);
         // 찾기 결과: 색(성공·실패·찾는 중), 아이콘, 제목, 자세한 줄.
         let (color, icon, title, details): (Hsla, AssetIcon, SharedString, Vec<SharedString>) =
-            match &self.claude_code {
-                ClaudeCodeStatus::Unchecked | ClaudeCodeStatus::Detecting => (
+            match state {
+                None | Some(CliStatus::Detecting) => (
                     pal.muted,
                     icons::detecting(),
-                    t!("settings.ai.claude_code.detecting").into(),
+                    t!("settings.ai.cli.detecting", name = name).into(),
                     Vec::new(),
                 ),
-                ClaudeCodeStatus::Found(install) => (
+                Some(CliStatus::Found(install)) => (
                     pal.success,
                     icons::found(),
-                    t!("settings.ai.claude_code.found").into(),
+                    t!("settings.ai.cli.found", name = name).into(),
                     vec![
                         install.path.display().to_string().into(),
                         match &install.version {
                             Some(version) => {
-                                t!("settings.ai.claude_code.version", version = version).into()
+                                t!("settings.ai.cli.version", version = version).into()
                             }
-                            None => t!("settings.ai.claude_code.version_unknown").into(),
+                            None => t!("settings.ai.cli.version_unknown", program = program).into(),
                         },
                     ],
                 ),
-                ClaudeCodeStatus::NotFound => (
+                Some(CliStatus::NotFound) => (
                     pal.danger,
                     icons::not_found(),
-                    t!("settings.ai.claude_code.not_found").into(),
-                    vec![t!("settings.ai.claude_code.not_found_hint").into()],
+                    t!("settings.ai.cli.not_found", name = name).into(),
+                    vec![t!("settings.ai.cli.not_found_hint", program = program).into()],
                 ),
             };
         let status = div()
@@ -1405,7 +1430,7 @@ impl SettingsWindow {
                             .child(line)
                     })),
             );
-        let detecting = matches!(self.claude_code, ClaudeCodeStatus::Detecting);
+        let detecting = matches!(state, Some(CliStatus::Detecting));
         div()
             .flex()
             .flex_col()
@@ -1415,20 +1440,23 @@ impl SettingsWindow {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .child(t!("settings.ai.claude_code.install"))
+                    .child(name)
                     .child(
-                        Button::new("claude-code-detect")
+                        Button::new("cli-detect")
                             .ghost()
                             .small()
-                            .label(t!("settings.ai.claude_code.detect"))
+                            .label(t!("settings.ai.cli.detect"))
                             .disabled(detecting)
                             .on_click(cx.listener(|this, _, window, cx| {
-                                this.detect_claude_code(true, window, cx);
+                                this.detect_cli(true, window, cx);
                             })),
                     ),
             )
             .child(status)
-            .child(hint(t!("settings.ai.claude_code.hint").into()))
+            .child(hint(match cli {
+                Cli::ClaudeCode => t!("settings.ai.cli.hint_claude_code").into(),
+                Cli::Codex => t!("settings.ai.cli.hint_codex").into(),
+            }))
     }
 }
 
@@ -1501,8 +1529,10 @@ impl SettingsWindow {
                 .font_semibold()
                 .child(t!("settings.dictation.ai")),
         );
-        if provider == Some(AiProvider::ClaudeCode) {
-            return section.child(hint(t!("settings.dictation.ai_hint_agent").into()));
+        if let Some(cli) = provider.and_then(AiProvider::cli) {
+            return section.child(hint(
+                t!("settings.dictation.ai_hint_agent", name = cli.title()).into(),
+            ));
         }
         let Some(provider) = provider.filter(|_| configured) else {
             return section.child(hint(t!("settings.dictation.ai_hint_none").into()));

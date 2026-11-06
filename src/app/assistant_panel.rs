@@ -1203,13 +1203,10 @@ impl HanjiApp {
         let extensions = workspace.map_or(&[][..], agent::Workspace::extensions);
         // 에이전트(ADR-0057)는 자기 파일 도구를 쓰므로 지시가 다르다.
         let agent = agent::Backend::from_prefs(cx.global::<crate::settings::Prefs>())
-            .is_some_and(|backend| backend.is_agent());
-        let prompt = |sheet: Option<agent::Sheet>| {
-            if agent {
-                agent::agent_system_prompt(sheet, skills)
-            } else {
-                agent::system_prompt(sheet, tools, skills, extensions)
-            }
+            .and_then(|backend| backend.agent_tools());
+        let prompt = |sheet: Option<agent::Sheet>| match agent {
+            Some(tools) => agent::agent_system_prompt(sheet, tools, skills),
+            None => agent::system_prompt(sheet, tools, skills, extensions),
         };
         let Some(editor) = &self.editor else {
             return prompt(None);

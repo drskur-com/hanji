@@ -532,12 +532,13 @@ impl InsertOcrForm {
                         .disabled(true),
                 )
                 .child(note(
-                    if cx.global::<crate::settings::Prefs>().ai_provider
-                        == Some(crate::settings::AiProvider::ClaudeCode)
+                    match cx
+                        .global::<crate::settings::Prefs>()
+                        .ai_provider
+                        .and_then(crate::settings::AiProvider::cli)
                     {
-                        t!("insert.ocr.ai_agent").into()
-                    } else {
-                        t!("insert.ocr.ai_not_configured").into()
+                        Some(cli) => t!("insert.ocr.ai_agent", name = cli.title()).into(),
+                        None => t!("insert.ocr.ai_not_configured").into(),
                     },
                     pal.muted,
                 ))
@@ -547,6 +548,7 @@ impl InsertOcrForm {
             Backend::Bedrock { .. } => "Amazon Bedrock",
             Backend::TokenPlan { .. } => "Alibaba Token Plan",
             Backend::ClaudeCode { .. } => "Claude Code",
+            Backend::Codex { .. } => "Codex",
         };
         let model: AnyElement = match &self.models {
             Models::Unavailable => note("".into(), pal.muted).into_any_element(),

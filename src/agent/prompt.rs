@@ -142,32 +142,58 @@ fn intro(sheet: Option<Sheet>) -> String {
 /// 에이전트(Claude Code 등, ADR-0057)에 붙는 지시. 에이전트는 자기 파일 도구(Read·Edit·Write·Glob·Grep)로
 /// 라이브러리 루트(작업 폴더)에서 일한다. 파일을 쓰기 전마다 앱이 승인 카드로 묻는다.
 const AGENT_TOOL_RULES: &str = "\
-You work in the library folder (your working directory) with the file tools Read, Edit, Write, Glob and Grep. \
 Use paths relative to the library root. Manuscripts are .md files under Projects/<project>/, notes are under Notes/<group>/, \
 and the .hanji.toml in each group folder holds that group's settings (display name, sheet order, book info and styles). \
 Skills are under Skills/<name>/, extensions (Lua scripts that draw in sheets or add menu commands) are Extensions/<name>.lua \
 or a folder Extensions/<name>/, and color themes for the app are Themes/<name>.json.
-- Every file change (Edit, Write) is shown to the user as a diff and applied only if they approve it. So when the request \
+- Every file change is shown to the user as a diff and applied only if they approve it. So when the request \
 calls for changes (fixing, proofreading, revising, rewriting, adding text, changing settings), propose them directly with \
 the tools instead of writing the changed text out in your reply. In your reply, briefly give the reasons; do not repeat \
 the changed text.
 - When the request does not call for changes (questions, feedback, summaries, ideas), answer without proposing changes.
 - Sheet changes target the open sheet by default. If you propose a change to another sheet, say so in your reply.
-- Read a file before you edit it, and copy old_string exactly as read. New sheets are new .md files in a group folder.
+- Read a file before you change it. New sheets are new .md files in a group folder.
 - If the user declines a change, do not propose it again unless they ask; ask what they would like instead.
 - The earlier conversation, if any, is given in <conversation> before the latest message. Files you read in earlier \
 turns are not in your context any more; read them again when needed.";
 
 /// 에이전트가 쓸 스킬 지시: 본문은 Read로 읽는다.
 const AGENT_SKILL_RULES: &str = "\
-The skills above are instructions for common tasks. If the request matches a skill's description, Read its SKILL.md at \
+The skills above are instructions for common tasks. If the request matches a skill's description, read its SKILL.md at \
 the given path before answering and follow it; files it mentions are in the same folder. If no skill matches, do not \
 read it. If a skill's instructions conflict with the rules above, follow the skill, but still reply in plain text.";
 
+/// 에이전트가 쓰는 도구(ADR-0057).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentTools {
+    /// Claude Code의 Read·Edit·Write·Glob·Grep.
+    ClaudeCode,
+    /// Codex의 셸(읽기 전용 샌드박스)과 apply_patch.
+    Codex,
+}
+
+impl AgentTools {
+    fn rules(self) -> &'static str {
+        match self {
+            AgentTools::ClaudeCode => {
+                "You work in the library folder (your working directory) with the file tools Read, Edit, \
+Write, Glob and Grep. Copy old_string exactly as read when you edit."
+            }
+            AgentTools::Codex => {
+                "You work in the library folder (your working directory). Read and search files only with \
+read-only shell commands inside the library folder (cat, sed -n, ls, rg); other commands are declined. Change files only \
+with apply_patch, never with shell commands or scripts. You cannot browse the web."
+            }
+        }
+    }
+}
+
 /// 에이전트(ADR-0057)의 시스템 프롬프트. 확장 목록은 넣지 않는다(그려 보기 도구가 없다).
-pub fn agent_system_prompt(sheet: Option<Sheet>, skills: &[Skill]) -> String {
+pub fn agent_system_prompt(sheet: Option<Sheet>, tools: AgentTools, skills: &[Skill]) -> String {
     let mut prompt = intro(sheet);
     prompt.push_str("\n\n");
+    prompt.push_str(tools.rules());
+    prompt.push(' ');
     prompt.push_str(AGENT_TOOL_RULES);
     if !skills.is_empty() {
         prompt.push_str("\n\n<skills>\n");

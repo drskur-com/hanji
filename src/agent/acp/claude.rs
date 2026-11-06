@@ -2,24 +2,23 @@
 //! 그 출력을 ACP 알림으로, 파일 쓰기 권한 질문(`can_use_tool`)을 `session/request_permission`으로 바꾼다.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use agent_client_protocol::v1::ConnectionTo;
 use agent_client_protocol::v1::schema::{
-    AgentCapabilities, CancelNotification, ContentBlock, ContentChunk, Diff, InitializeRequest,
-    InitializeResponse, NewSessionRequest, NewSessionResponse, PermissionOption,
-    PermissionOptionKind, PromptRequest, PromptResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, SessionId, SessionNotification, SessionUpdate, StopReason,
-    TextContent, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdate,
-    ToolCallUpdateFields, ToolKind,
+    ContentBlock, ContentChunk, Diff, PromptResponse, SessionUpdate, StopReason, TextContent,
+    ToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
+    ToolKind,
 };
-use agent_client_protocol::{Agent, Client, ConnectTo, Error};
+use agent_client_protocol::{Client, ConnectTo};
 use futures::channel::oneshot;
+use futures::future::BoxFuture;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
-use tokio::process::{ChildStdin, Command};
+use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
+use tokio::process::Command;
+
+use super::adapter::{self, Runner, write_line};
 
 /// 고를 수 있는 모델(별칭, 표시 이름). 첫 것이 기본이다.
 pub const MODELS: &[(&str, &str)] = &[
@@ -69,9 +68,6 @@ const DECLINED: &str = "The user declined this change. Do not retry it unless th
 /// 묻지 않을 도구 밖의 권한 질문을 거절할 때 돌려줄 글.
 const NOT_ALLOWED: &str = "This tool is not available in Hanji.";
 
-const ALLOW: &str = "allow";
-const REJECT: &str = "reject";
-
 /// 한 대화에 쓰는 Claude Code 설정.
 #[derive(Clone, Debug)]
 pub struct ClaudeCode {
@@ -82,112 +78,52 @@ pub struct ClaudeCode {
     pub system: String,
 }
 
-/// 세션 하나의 상태: 작업 폴더와, 돌고 있는 말을 멈출 곳.
-#[derive(Default)]
-struct State {
-    cwd: Option<PathBuf>,
-    cancel: Option<oneshot::Sender<()>>,
-}
-
 impl ClaudeCode {
     /// ACP 에이전트로 만든다. 같은 프로세스 안에서 클라이언트에 바로 잇는다.
     pub fn into_agent(self) -> impl ConnectTo<Client> {
-        let state = Arc::new(Mutex::new(State::default()));
-        let config = Arc::new(self);
-        let session_state = state.clone();
-        let prompt_state = state.clone();
-        let cancel_state = state;
-        Agent
-            .v1()
-            .name("hanji-claude-code")
-            .on_receive_request(
-                async move |request: InitializeRequest, responder, _cx| {
-                    responder.respond(
-                        InitializeResponse::new(request.protocol_version)
-                            .agent_capabilities(AgentCapabilities::new()),
-                    )
-                },
-                agent_client_protocol::on_receive_request!(),
-            )
-            .on_receive_request(
-                async move |request: NewSessionRequest, responder, _cx| {
-                    session_state.lock().expect("state").cwd = Some(request.cwd);
-                    responder.respond(NewSessionResponse::new(SessionId::new("claude-code")))
-                },
-                agent_client_protocol::on_receive_request!(),
-            )
-            .on_receive_request(
-                async move |request: PromptRequest, responder, cx: ConnectionTo<Client>| {
-                    let (cancel_tx, cancel_rx) = oneshot::channel();
-                    let cwd = {
-                        let mut state = prompt_state.lock().expect("state");
-                        state.cancel = Some(cancel_tx);
-                        state.cwd.clone()
-                    };
-                    let Some(cwd) = cwd else {
-                        return responder.respond_with_internal_error("no session");
-                    };
-                    let text = request
-                        .prompt
-                        .iter()
-                        .filter_map(|block| match block {
-                            ContentBlock::Text(text) => Some(text.text.as_str()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n\n");
-                    let config = config.clone();
-                    let connection = cx.clone();
-                    cx.spawn(async move {
-                        let turn = Turn {
-                            config: &config,
-                            cwd: &cwd,
-                            session: request.session_id.clone(),
-                            cx: &connection,
-                        };
-                        match turn.run(&text, cancel_rx).await {
-                            Ok((stop, resolved)) => {
-                                let mut response = PromptResponse::new(stop);
-                                if let Some(resolved) = resolved {
-                                    response = response.meta(serde_json::Map::from_iter([(
-                                        MODEL_META.to_string(),
-                                        json!({ "requested": config.model, "resolved": resolved }),
-                                    )]));
-                                }
-                                responder.respond(response)
-                            }
-                            Err(message) => {
-                                responder.respond_with_error(Error::new(-32603, message))
-                            }
-                        }
-                    })
-                },
-                agent_client_protocol::on_receive_request!(),
-            )
-            .on_receive_notification(
-                async move |_cancel: CancelNotification, _cx| {
-                    if let Some(cancel) = cancel_state.lock().expect("state").cancel.take() {
-                        cancel.send(()).ok();
-                    }
-                    Ok(())
-                },
-                agent_client_protocol::on_receive_notification!(),
-            )
+        adapter::into_agent(self)
+    }
+}
+
+impl Runner for ClaudeCode {
+    fn name(&self) -> &'static str {
+        "hanji-claude-code"
+    }
+
+    fn run(
+        self: Arc<Self>,
+        turn: adapter::Turn,
+        text: String,
+        cancel: oneshot::Receiver<()>,
+    ) -> BoxFuture<'static, Result<PromptResponse, String>> {
+        Box::pin(async move {
+            let run = Run {
+                config: &self,
+                turn: &turn,
+            };
+            let (stop, resolved) = run.run(&text, cancel).await?;
+            let mut response = PromptResponse::new(stop);
+            if let Some(resolved) = resolved {
+                response = response.meta(serde_json::Map::from_iter([(
+                    MODEL_META.to_string(),
+                    json!({ "requested": self.model, "resolved": resolved }),
+                )]));
+            }
+            Ok(response)
+        })
     }
 }
 
 /// 말 한 번.
-struct Turn<'a> {
+struct Run<'a> {
     config: &'a ClaudeCode,
-    cwd: &'a Path,
-    session: SessionId,
-    cx: &'a ConnectionTo<Client>,
+    turn: &'a adapter::Turn,
 }
 
 /// 승인을 거쳐 쓰기로 한 도구 호출(`tool_use_id`).
 type Approved = HashSet<String>;
 
-impl Turn<'_> {
+impl Run<'_> {
     /// 말 한 번을 돌린다. 끝난 까닭과, `claude`가 알린 실제 모델(`init`)을 돌려준다.
     async fn run(
         &self,
@@ -195,12 +131,13 @@ impl Turn<'_> {
         cancel: oneshot::Receiver<()>,
     ) -> Result<(StopReason, Option<String>), String> {
         let override_path = self.config.path.clone();
-        let binary =
-            tokio::task::spawn_blocking(move || crate::claude_code::find(override_path.as_deref()))
-                .await
-                .ok()
-                .flatten()
-                .ok_or_else(|| t!("assistant.error.claude_code_missing").to_string())?;
+        let binary = tokio::task::spawn_blocking(move || {
+            crate::agent_cli::find(crate::agent_cli::Cli::ClaudeCode, override_path.as_deref())
+        })
+        .await
+        .ok()
+        .flatten()
+        .ok_or_else(|| t!("assistant.error.cli_missing", name = "Claude Code").to_string())?;
 
         let mut command = std::process::Command::new(&binary);
         command
@@ -224,15 +161,17 @@ impl Turn<'_> {
                 "--system-prompt",
                 &self.config.system,
             ])
-            .current_dir(self.cwd)
+            .current_dir(&self.turn.cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        crate::claude_code::hide_console(&mut command);
+        crate::agent_cli::hide_console(&mut command);
         let mut child = Command::from(command)
             .kill_on_drop(true)
             .spawn()
-            .map_err(|err| t!("assistant.error.claude_code_start", err = err).to_string())?;
+            .map_err(|err| {
+                t!("assistant.error.cli_start", name = "Claude Code", err = err).to_string()
+            })?;
         let mut stdin = child.stdin.take().ok_or("no stdin")?;
         let stdout = child.stdout.take().ok_or("no stdout")?;
         let mut stderr = child.stderr.take().ok_or("no stderr")?;
@@ -292,16 +231,19 @@ impl Turn<'_> {
             }
             Some(_) => Ok((StopReason::EndTurn, resolved)),
             None => Err(match stderr_text.trim() {
-                "" => t!("assistant.error.claude_code_exited").to_string(),
+                "" => t!(
+                    "assistant.error.cli_exited",
+                    name = "Claude Code",
+                    program = "claude"
+                )
+                .to_string(),
                 text => text.to_string(),
             }),
         }
     }
 
     fn notify(&self, update: SessionUpdate) -> Result<(), String> {
-        self.cx
-            .send_notification(SessionNotification::new(self.session.clone(), update))
-            .map_err(|err| err.message)
+        self.turn.notify(update)
     }
 
     /// 글 조각(`text_delta`)을 넘긴다.
@@ -398,24 +340,7 @@ impl Turn<'_> {
                 .content(vec![ToolCallContent::Diff(diff)])
                 .raw_input(input.clone()),
         );
-        let options = vec![
-            PermissionOption::new(ALLOW, "Allow", PermissionOptionKind::AllowOnce),
-            PermissionOption::new(REJECT, "Reject", PermissionOptionKind::RejectOnce),
-        ];
-        let response = self
-            .cx
-            .send_request(RequestPermissionRequest::new(
-                self.session.clone(),
-                tool_call,
-                options,
-            ))
-            .block_task()
-            .await
-            .map_err(|err| err.message)?;
-        let allowed = matches!(
-            &response.outcome,
-            RequestPermissionOutcome::Selected(selected) if selected.option_id.0.as_ref() == ALLOW
-        );
+        let allowed = self.turn.ask(tool_call).await?;
         if !allowed {
             return Ok(deny(request_id, DECLINED));
         }
@@ -432,7 +357,7 @@ impl Turn<'_> {
 
     /// 화면에 보일 경로: 라이브러리 루트 기준.
     fn relative(&self, path: &str) -> String {
-        super::relative(self.cwd, Path::new(path))
+        self.turn.relative(path)
     }
 }
 
@@ -490,20 +415,15 @@ fn result_error(result: &Value) -> String {
         .filter_map(Value::as_str)
         .collect();
     if errors.is_empty() {
-        t!("assistant.error.claude_code_exited").to_string()
+        t!(
+            "assistant.error.cli_exited",
+            name = "Claude Code",
+            program = "claude"
+        )
+        .to_string()
     } else {
         errors.join("\n")
     }
-}
-
-async fn write_line(stdin: &mut ChildStdin, value: &Value) -> Result<(), String> {
-    let mut line = value.to_string();
-    line.push('\n');
-    stdin
-        .write_all(line.as_bytes())
-        .await
-        .map_err(|err| err.to_string())?;
-    stdin.flush().await.map_err(|err| err.to_string())
 }
 
 #[cfg(test)]
