@@ -885,6 +885,29 @@ impl HanjiApp {
         cx.notify();
     }
 
+    /// 에이전트 모델 별칭이 실제로 간 모델을 저장한다. 처음 알았거나 바뀌었으면 모델 이름을 다시 만든다.
+    fn remember_resolved_model(
+        &mut self,
+        requested: &str,
+        resolved: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut config = crate::config::Config::load();
+        if config.claude_code_models.get(requested).map(String::as_str) == Some(resolved) {
+            return;
+        }
+        config
+            .claude_code_models
+            .insert(requested.to_string(), resolved.to_string());
+        if let Err(err) = config.save() {
+            eprintln!("설정 저장 실패: {err}");
+            return;
+        }
+        self.assistant_chat.models_for = None;
+        self.refresh_assistant_models(window, cx);
+    }
+
     /// 어시스턴트가 고른 모델(`set_model`)을 저장하고 모델 고르기에도 보인다.
     fn choose_assistant_model(&mut self, model: &str, window: &mut Window, cx: &mut Context<Self>) {
         crate::settings::Prefs::set_ai_model(Some(model.to_string().into()), cx);
@@ -965,6 +988,12 @@ impl HanjiApp {
         let finished = matches!(event, agent::ChatEvent::Done | agent::ChatEvent::Failed(_));
         match &event {
             agent::ChatEvent::SetModel(model) => self.choose_assistant_model(model, window, cx),
+            agent::ChatEvent::ModelResolved {
+                requested,
+                resolved,
+            } => {
+                self.remember_resolved_model(requested, resolved, window, cx);
+            }
             agent::ChatEvent::Changed => self.sync_open_sheet(window, cx),
             _ => {}
         }
@@ -1172,8 +1201,18 @@ impl HanjiApp {
         let tools = workspace.is_some();
         let skills = workspace.map_or(&[][..], agent::Workspace::skills);
         let extensions = workspace.map_or(&[][..], agent::Workspace::extensions);
+        // 에이전트(ADR-0057)는 자기 파일 도구를 쓰므로 지시가 다르다.
+        let agent = agent::Backend::from_prefs(cx.global::<crate::settings::Prefs>())
+            .is_some_and(|backend| backend.is_agent());
+        let prompt = |sheet: Option<agent::Sheet>| {
+            if agent {
+                agent::agent_system_prompt(sheet, skills)
+            } else {
+                agent::system_prompt(sheet, tools, skills, extensions)
+            }
+        };
         let Some(editor) = &self.editor else {
-            return agent::system_prompt(None, tools, skills, extensions);
+            return prompt(None);
         };
         let path = self.open_sheet_path();
         let title = self
@@ -1184,16 +1223,11 @@ impl HanjiApp {
         // 파일과 같은 마크다운으로 넣는다(에디터 본문은 줄 하나가 문단이라 파일과 다르다). 그래야
         // edit_file의 old를 파일에서 그대로 찾는다.
         let body = crate::text_transform::to_markdown(&editor.state().read(cx).value());
-        agent::system_prompt(
-            Some(agent::Sheet {
-                title: &title,
-                path: path.as_deref(),
-                body: &body,
-            }),
-            tools,
-            skills,
-            extensions,
-        )
+        prompt(Some(agent::Sheet {
+            title: &title,
+            path: path.as_deref(),
+            body: &body,
+        }))
     }
 }
 

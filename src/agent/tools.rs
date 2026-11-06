@@ -173,6 +173,11 @@ impl Workspace {
     }
 
     /// 라이브러리의 확장(이름순).
+    /// 라이브러리 루트.
+    pub fn root(&self) -> &std::path::Path {
+        &self.root
+    }
+
     pub fn extensions(&self) -> &[crate::extension::Meta] {
         &self.extensions
     }

@@ -26,7 +26,7 @@ pub struct Config {
     pub editor_font: Option<String>,
     /// 에디터 본문 글자 크기(px). 없으면 16.
     pub editor_font_size: Option<u16>,
-    /// 어시스턴트가 쓸 AI 제공자(`bedrock`, `alibaba-token-plan`). 없으면 쓰지 않는다.
+    /// 어시스턴트가 쓸 AI 제공자(`bedrock`, `alibaba-token-plan`, `claude-code`). 없으면 쓰지 않는다.
     pub ai_provider: Option<String>,
     /// Bedrock에 쓸 AWS 프로필 이름(`~/.aws/config`). 없으면 고르지 않은 것.
     pub aws_profile: Option<String>,
@@ -38,6 +38,12 @@ pub struct Config {
     pub token_plan_api_key: Option<String>,
     /// 어시스턴트가 부를 Token Plan 모델 ID. 없으면 `agent::token_plan::DEFAULT_MODEL`.
     pub token_plan_model: Option<String>,
+    /// Claude Code CLI(`claude`) 경로. 없으면 `PATH`와 흔한 설치 위치에서 찾는다.
+    pub claude_code_path: Option<PathBuf>,
+    /// 어시스턴트가 부를 Claude Code 모델 별칭(`sonnet`·`opus`·`haiku`). 없으면 `sonnet`.
+    pub claude_code_model: Option<String>,
+    /// Claude Code 모델 별칭 → 마지막으로 실제 불린 모델 ID(`sonnet` → `claude-sonnet-5-5`). 모델 이름에 버전을 보인다.
+    pub claude_code_models: std::collections::BTreeMap<String, String>,
     /// UI 언어(`en`·`ko`). 없으면 시스템 언어를 따른다.
     pub language: Option<String>,
     /// OCR 텍스트 삽입 대화상자의 옵션(ADR-0053). 다음에 열 때도 그대로 쓴다.
@@ -101,10 +107,11 @@ impl Default for DictationConfig {
 impl DictationConfig {
     /// 요약에 부를 곳. AI를 설정하지 않았으면 `None`.
     pub fn backend(&self, prefs: &crate::settings::Prefs) -> Option<crate::agent::Backend> {
-        let backend = crate::agent::Backend::from_prefs(prefs)?;
+        let backend = crate::agent::Backend::llm_from_prefs(prefs)?;
         let model = match backend {
             crate::agent::Backend::Bedrock { .. } => self.bedrock_model.clone(),
             crate::agent::Backend::TokenPlan { .. } => self.token_plan_model.clone(),
+            crate::agent::Backend::ClaudeCode { .. } => None,
         };
         Some(match model {
             Some(model) => backend.with_model(model),

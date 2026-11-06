@@ -531,12 +531,22 @@ impl InsertOcrForm {
                         .checked(false)
                         .disabled(true),
                 )
-                .child(note(t!("insert.ocr.ai_not_configured").into(), pal.muted))
+                .child(note(
+                    if cx.global::<crate::settings::Prefs>().ai_provider
+                        == Some(crate::settings::AiProvider::ClaudeCode)
+                    {
+                        t!("insert.ocr.ai_agent").into()
+                    } else {
+                        t!("insert.ocr.ai_not_configured").into()
+                    },
+                    pal.muted,
+                ))
                 .into_any_element();
         };
         let provider = match backend {
             Backend::Bedrock { .. } => "Amazon Bedrock",
             Backend::TokenPlan { .. } => "Alibaba Token Plan",
+            Backend::ClaudeCode { .. } => "Claude Code",
         };
         let model: AnyElement = match &self.models {
             Models::Unavailable => note("".into(), pal.muted).into_any_element(),
@@ -690,7 +700,7 @@ impl HanjiApp {
         };
         let target = editor.state().clone();
         let app = cx.entity().downgrade();
-        let backend = Backend::from_prefs(cx.global::<crate::settings::Prefs>());
+        let backend = Backend::llm_from_prefs(cx.global::<crate::settings::Prefs>());
         let form = cx.new(|cx| InsertOcrForm::new(backend, window, cx));
         // 미리보기 칸의 Enter는 줄바꿈이므로 확인(`on_ok`)을 걸지 않는다. 삽입은 버튼으로만 한다.
         window.open_dialog(cx, move |dialog, _, _| {

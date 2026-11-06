@@ -144,13 +144,14 @@ fn image_placement(backend: &Backend) -> ImagePlacement {
             Some(model) if !model.vision => ImagePlacement::None,
             _ => ImagePlacement::AfterToolResults,
         },
+        Backend::ClaudeCode { .. } => ImagePlacement::None,
     }
 }
 
 /// 한 번의 답에 쓸 최대 출력 토큰. 모델의 상한을 넘겨 부르면 거절한다.
 pub(super) fn max_tokens(backend: &Backend) -> u64 {
     match backend {
-        Backend::Bedrock { .. } => MAX_TOKENS,
+        Backend::Bedrock { .. } | Backend::ClaudeCode { .. } => MAX_TOKENS,
         Backend::TokenPlan { model, .. } => {
             token_plan::find(model).map_or(MAX_TOKENS, |model| model.max_output.min(MAX_TOKENS))
         }
@@ -172,6 +173,9 @@ pub(super) fn completion_model(backend: &Backend) -> DynModel<Completion> {
             runtime.build().completion(model).erase()
         }
         Backend::TokenPlan { api_key, model } => token_plan::completion_model(api_key, model),
+        // 에이전트는 rig로 부르지 않는다: 어시스턴트는 ACP로 가고(`stream`), 모델 한 번 부르기는
+        // `Backend::llm_from_prefs`로 에이전트를 거른다.
+        Backend::ClaudeCode { .. } => unreachable!("에이전트 제공자는 rig 모델이 없다"),
     }
 }
 
@@ -240,7 +244,7 @@ async fn web_fetch(
     let site = web::site(url);
     let known = allowed.lock().is_ok_and(|sites| sites.contains(&site));
     if !known {
-        let id = NEXT_CHANGE.fetch_add(1, Ordering::Relaxed);
+        let id = next_change_id();
         let (reply, answer) = oneshot::channel();
         let card = FetchCard {
             id,
@@ -330,7 +334,7 @@ async fn approve(
     change: PendingChange,
     tx: &mpsc::UnboundedSender<ChatEvent>,
 ) -> Option<String> {
-    let id = NEXT_CHANGE.fetch_add(1, Ordering::Relaxed);
+    let id = next_change_id();
     let (reply, answer) = oneshot::channel();
     let card = ChangeCard {
         id,
@@ -382,7 +386,10 @@ pub(super) fn runtime() -> &'static tokio::runtime::Runtime {
 pub fn stream(request: ChatRequest) -> mpsc::UnboundedReceiver<ChatEvent> {
     let (tx, rx) = mpsc::unbounded();
     runtime().spawn(async move {
-        let result = run(&request, &tx).await;
+        let result = match &request.backend {
+            Backend::ClaudeCode { model } => run_claude_code(&request, model, &tx).await,
+            _ => run(&request, &tx).await,
+        };
         if let Some(workspace) = &request.workspace {
             approve_drafts(workspace, &tx).await;
         }
@@ -395,6 +402,33 @@ pub fn stream(request: ChatRequest) -> mpsc::UnboundedReceiver<ChatEvent> {
     rx
 }
 
+/// Claude Code(ACP 어댑터, ADR-0057)로 답을 받는다. 라이브러리 루트에서 일한다.
+async fn run_claude_code(
+    request: &ChatRequest,
+    model: &str,
+    tx: &mpsc::UnboundedSender<ChatEvent>,
+) -> Result<(), String> {
+    let root = request
+        .workspace
+        .as_ref()
+        .map(|workspace| workspace.root().to_path_buf())
+        .ok_or_else(|| t!("assistant.error.agent_needs_library").to_string())?;
+    let agent = super::acp::claude::ClaudeCode {
+        path: crate::config::Config::load().claude_code_path,
+        model: model.to_string(),
+        system: request.system.clone(),
+    };
+    super::acp::run(
+        agent.into_agent(),
+        super::acp::Prompt {
+            cwd: root,
+            turns: request.turns.clone(),
+        },
+        tx,
+    )
+    .await
+}
+
 /// 사용자가 변경을 거절했을 때 모델에 돌려줄 글.
 const DECLINED: &str = "The user declined this change. Do not retry it unless they ask; you may ask what they would like instead.";
 
@@ -403,6 +437,11 @@ const FETCH_DECLINED: &str = "The user did not allow reading this site. Do not t
 
 /// 승인 카드 번호. 대화가 달라도 겹치지 않게 앱 전체에서 센다.
 static NEXT_CHANGE: AtomicU64 = AtomicU64::new(1);
+
+/// 새 승인 카드 번호.
+pub(super) fn next_change_id() -> u64 {
+    NEXT_CHANGE.fetch_add(1, Ordering::Relaxed)
+}
 
 /// 도구를 부르고 다시 묻기를 이만큼까지만 되풀이한다(끝없이 도는 것을 막는다).
 /// 확장은 초안을 고치고 그려 보기를 여러 번 되풀이하므로 넉넉히 둔다.

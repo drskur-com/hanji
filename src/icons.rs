@@ -231,6 +231,21 @@ pub fn downloaded() -> IconName {
     IconName::Check
 }
 
+/// 설정 → AI → Claude Code: 찾음.
+pub fn found() -> IconName {
+    IconName::CircleCheck
+}
+
+/// 설정 → AI → Claude Code: 찾지 못함.
+pub fn not_found() -> IconName {
+    IconName::CircleX
+}
+
+/// 설정 → AI → Claude Code: 찾는 중.
+pub fn detecting() -> IconName {
+    IconName::LoaderCircle
+}
+
 /// 받아쓰기 모델 카드: 언어 수.
 pub fn languages() -> IconName {
     IconName::Globe

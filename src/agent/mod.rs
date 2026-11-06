@@ -1,6 +1,7 @@
 //! 어시스턴트 에이전트: 대화 상태, 시스템 프롬프트, 모델 호출. 화면(gpui)과 떨어져 있어
 //! 패널은 [`Conversation`]을 들고 그리기만 한다.
 
+mod acp;
 mod bedrock;
 pub mod dictation;
 mod diff;
@@ -20,7 +21,7 @@ mod web;
 pub use bedrock::{ChatRequest, stream};
 pub use diff::{DiffLine, LineKind};
 pub use history::{History, Summary, now_millis};
-pub use prompt::{Sheet, system_prompt};
+pub use prompt::{Sheet, agent_system_prompt, system_prompt};
 pub use review::PASS_SCORE;
 pub use tools::Workspace;
 
@@ -132,6 +133,8 @@ pub enum ChatEvent {
     Changed,
     /// 어시스턴트가 부를 모델을 이 ID로 바꿨다(`set_model`). 다음 말부터 쓴다.
     SetModel(String),
+    /// 에이전트가 모델 별칭(`requested`)을 이 모델 ID(`resolved`)로 불렀다(ADR-0057). 모델 이름에 버전을 보인다.
+    ModelResolved { requested: String, resolved: String },
     /// 답이 끝났다.
     Done,
     /// 요청이 실패했다(자격 증명, 권한, 모델 ID 등). 사람이 읽을 설명.
@@ -176,6 +179,11 @@ pub enum Backend {
         /// 모델 ID.
         model: String,
     },
+    /// 설치된 Claude Code CLI(에이전트, ADR-0057). 모델 한 번 부르기에는 쓰지 않는다.
+    ClaudeCode {
+        /// 모델 별칭(`sonnet`·`opus`·`haiku`).
+        model: String,
+    },
 }
 
 /// API 키는 기록(로그)에 남기지 않는다.
@@ -196,13 +204,17 @@ impl std::fmt::Debug for Backend {
                 .debug_struct("TokenPlan")
                 .field("model", model)
                 .finish_non_exhaustive(),
+            Backend::ClaudeCode { model } => {
+                f.debug_struct("ClaudeCode").field("model", model).finish()
+            }
         }
     }
 }
 
 impl Backend {
     /// 설정에서 고른 곳. AI를 설정하지 않았으면(제공자가 없거나, Bedrock에 AWS 프로필이,
-    /// Token Plan에 API 키가 없으면) `None`.
+    /// Token Plan에 API 키가 없으면) `None`. Claude Code(에이전트)도 돌려준다. 모델 한 번 부르기만 하는
+    /// 기능(받아쓰기 요약·OCR)은 [`Self::llm_from_prefs`]를 쓴다.
     pub fn from_prefs(prefs: &Prefs) -> Option<Self> {
         match prefs.ai_provider? {
             AiProvider::Bedrock => Some(Self::Bedrock {
@@ -220,13 +232,31 @@ impl Backend {
                     ToString::to_string,
                 ),
             }),
+            AiProvider::ClaudeCode => Some(Self::ClaudeCode {
+                model: prefs
+                    .claude_code_model
+                    .as_ref()
+                    .map_or_else(|| acp::claude::MODELS[0].0.to_string(), ToString::to_string),
+            }),
         }
+    }
+
+    /// 모델 한 번 부르기(받아쓰기 요약·OCR)에 쓸 곳. 에이전트 제공자면 `None`.
+    pub fn llm_from_prefs(prefs: &Prefs) -> Option<Self> {
+        Self::from_prefs(prefs).filter(|backend| !backend.is_agent())
+    }
+
+    /// 스스로 도구를 부르는 에이전트(ACP, ADR-0057)인지.
+    pub fn is_agent(&self) -> bool {
+        matches!(self, Backend::ClaudeCode { .. })
     }
 
     /// 같은 곳에서 다른 모델(`model` ID)을 부른다.
     pub fn with_model(mut self, model: String) -> Self {
         match &mut self {
-            Backend::Bedrock { model: current, .. } | Backend::TokenPlan { model: current, .. } => {
+            Backend::Bedrock { model: current, .. }
+            | Backend::TokenPlan { model: current, .. }
+            | Backend::ClaudeCode { model: current } => {
                 *current = model;
             }
         }
@@ -240,13 +270,16 @@ impl Backend {
         match self {
             Backend::Bedrock { .. } => true,
             Backend::TokenPlan { .. } => token_plan::find(id).is_none_or(|model| model.vision),
+            Backend::ClaudeCode { .. } => true,
         }
     }
 
     /// 부를 모델 ID.
     pub fn model(&self) -> &str {
         match self {
-            Backend::Bedrock { model, .. } | Backend::TokenPlan { model, .. } => model,
+            Backend::Bedrock { model, .. }
+            | Backend::TokenPlan { model, .. }
+            | Backend::ClaudeCode { model } => model,
         }
     }
 
@@ -257,6 +290,7 @@ impl Backend {
                 profile, region, ..
             } => format!("bedrock/{profile}/{}", region.as_deref().unwrap_or("")),
             Backend::TokenPlan { .. } => "token-plan".to_string(),
+            Backend::ClaudeCode { .. } => "claude-code".to_string(),
         }
     }
 
@@ -280,6 +314,26 @@ impl Backend {
                 profile, region, ..
             } => bedrock::list_models(profile, region.clone()).await,
             Backend::TokenPlan { api_key, .. } => token_plan::list_models(api_key).await,
+            Backend::ClaudeCode { .. } => {
+                // 한 번 써 본 별칭은 실제 모델의 이름(버전 포함)으로 보인다.
+                let resolved = crate::config::Config::load().claude_code_models;
+                Ok(acp::claude::MODELS
+                    .iter()
+                    .map(|(id, name)| {
+                        let name = resolved
+                            .get(*id)
+                            .and_then(|model| acp::claude::display_name(model))
+                            .map_or(Cow::Borrowed(*name), Cow::Owned);
+                        (
+                            ModelChoice {
+                                name,
+                                base: Cow::Borrowed(*id),
+                            },
+                            (*id).to_string(),
+                        )
+                    })
+                    .collect())
+            }
         }
     }
 }
@@ -398,7 +452,7 @@ impl Conversation {
                 None
             }
             // 설정·열린 시트는 화면이 맞춘다. 대화에는 도구 줄(`Tool`)만 남는다.
-            ChatEvent::SetModel(_) | ChatEvent::Changed => None,
+            ChatEvent::SetModel(_) | ChatEvent::ModelResolved { .. } | ChatEvent::Changed => None,
             ChatEvent::Done => {
                 self.streaming = false;
                 self.drop_pending();

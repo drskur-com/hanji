@@ -88,6 +88,7 @@ insert.ocr.windows_too_large: "The image is too large to read (up to %{max} px o
 insert.ocr.use_ai: "Read with AI (LLM vision)"
 insert.ocr.use_ai_hint: "For text the on-device recognition can't read, such as Korean mixed with Hanja. The image is sent to %{provider}."
 insert.ocr.ai_not_configured: "To read with AI, choose an AI provider in Settings."
+insert.ocr.ai_agent: "Claude Code is used only by the assistant. To read with AI, choose Amazon Bedrock or Alibaba Token Plan in Settings."
 insert.ocr.model: "Model"
 insert.ocr.model_placeholder: "Choose Model"
 insert.ocr.models_loading: "Checking available models…"
