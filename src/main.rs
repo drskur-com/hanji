@@ -33,6 +33,7 @@ mod menus;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod ocr;
 mod settings;
+mod shortcuts;
 mod text_transform;
 mod theme;
 mod thumbnail;
@@ -154,39 +155,8 @@ fn main() {
         // 설정 창은 어느 창에 포커스가 있든(또는 없든) 열 수 있어야 하므로 앱 전역에서 받는다.
         cx.on_action(|_: &OpenSettings, cx| settings::open(cx));
 
-        // 최소 단축키
-        cx.bind_keys([
-            KeyBinding::new("ctrl-n", NewSheet, None),
-            KeyBinding::new("ctrl-s", SaveSheet, None),
-            KeyBinding::new("ctrl-o", OpenLibrary, None),
-            KeyBinding::new("ctrl-,", OpenSettings, None),
-            #[cfg(target_os = "macos")]
-            KeyBinding::new("cmd-,", OpenSettings, None),
-            KeyBinding::new("ctrl-b", ToggleBold, None),
-            KeyBinding::new("ctrl-i", ToggleItalic, None),
-            KeyBinding::new("ctrl-shift-b", ToggleSidebar, None),
-            KeyBinding::new("ctrl-shift-l", ToggleTheme, None),
-            #[cfg(target_os = "macos")]
-            KeyBinding::new("cmd-b", ToggleBold, None),
-            #[cfg(target_os = "macos")]
-            KeyBinding::new("cmd-i", ToggleItalic, None),
-            #[cfg(target_os = "macos")]
-            KeyBinding::new("cmd-k", InsertLink, None),
-            #[cfg(not(target_os = "macos"))]
-            KeyBinding::new("ctrl-k", InsertLink, None),
-            #[cfg(target_os = "macos")]
-            KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
-            KeyBinding::new("cmd-shift-e", CompileProject, None),
-            KeyBinding::new("ctrl-shift-e", CompileProject, None),
-            #[cfg(target_os = "macos")]
-            KeyBinding::new("ctrl-cmd-space", InsertSpecialChar, None),
-            KeyBinding::new("ctrl-alt-space", InsertSpecialChar, None),
-            // cmd-shift-f는 에디터의 바꾸기다.
-            #[cfg(target_os = "macos")]
-            KeyBinding::new("cmd-alt-f", SearchSheets, None),
-            #[cfg(not(target_os = "macos"))]
-            KeyBinding::new("ctrl-shift-f", SearchSheets, None),
-        ]);
+        // 앱 단축키(설정 창 "단축키" 페이지와 같은 표).
+        cx.bind_keys(shortcuts::bindings());
 
         open_main_window(cx);
     });

@@ -196,6 +196,11 @@ pub fn ai_settings() -> IconName {
     IconName::Sparkles
 }
 
+/// 설정 창의 "단축키" 페이지.
+pub fn shortcuts() -> IconName {
+    IconName::Keyboard
+}
+
 /// 설정 창의 "받아쓰기" 페이지.
 pub fn dictation() -> IconName {
     IconName::Mic

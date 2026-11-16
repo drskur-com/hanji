@@ -10,6 +10,7 @@ use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::kbd::Kbd;
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::searchable_list::{SearchableListItem, SearchableVec};
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
@@ -333,16 +334,18 @@ enum Page {
     General,
     Ai,
     Dictation,
+    Shortcuts,
 }
 
 impl Page {
-    const ALL: [Page; 3] = [Page::General, Page::Ai, Page::Dictation];
+    const ALL: [Page; 4] = [Page::General, Page::Ai, Page::Dictation, Page::Shortcuts];
 
     fn id(self) -> &'static str {
         match self {
             Page::General => "general",
             Page::Ai => "ai",
             Page::Dictation => "dictation",
+            Page::Shortcuts => "shortcuts",
         }
     }
 
@@ -351,6 +354,7 @@ impl Page {
             Page::General => t!("settings.page.general").into(),
             Page::Ai => t!("settings.page.ai").into(),
             Page::Dictation => t!("settings.page.dictation").into(),
+            Page::Shortcuts => t!("settings.page.shortcuts").into(),
         }
     }
 
@@ -359,6 +363,7 @@ impl Page {
             Page::General => icons::settings(),
             Page::Ai => icons::ai_settings(),
             Page::Dictation => icons::dictation(),
+            Page::Shortcuts => icons::shortcuts(),
         }
     }
 }
@@ -1872,6 +1877,7 @@ impl Render for SettingsWindow {
         let content = match self.page {
             Page::General => self.render_general(cx, pal).into_any_element(),
             Page::Ai => self.render_ai(cx, pal).into_any_element(),
+            Page::Shortcuts => render_shortcuts(pal).into_any_element(),
             Page::Dictation => div()
                 .flex()
                 .flex_col()
@@ -1934,4 +1940,46 @@ impl Render for SettingsWindow {
 
         root.child(body)
     }
+}
+
+/// 단축키: 앱과 에디터에 미리 정한 단축키를 묶음별로 보인다(고칠 수는 없다).
+fn render_shortcuts(pal: Palette) -> impl IntoElement {
+    let shortcuts = crate::shortcuts::all();
+    div()
+        .flex()
+        .flex_col()
+        .gap_6()
+        .children(crate::shortcuts::Category::ALL.into_iter().map(|category| {
+            let rows = shortcuts
+                .iter()
+                .filter(|shortcut| shortcut.category == category)
+                .map(|shortcut| {
+                    let key = shortcut
+                        .keys
+                        .first()
+                        .and_then(|key| Keystroke::parse(key).ok());
+                    div()
+                        .h(px(32.0))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .border_b_1()
+                        .border_color(pal.panel_border)
+                        .text_sm()
+                        .child(shortcut.label())
+                        .children(key.map(Kbd::new))
+                });
+            div()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .pb_1()
+                        .text_xs()
+                        .font_semibold()
+                        .text_color(pal.muted)
+                        .child(category.title()),
+                )
+                .children(rows)
+        }))
 }
