@@ -699,7 +699,8 @@ fn secondary_click_goes_to_the_host_before_placing_the_caret(cx: &mut TestAppCon
     let on_second_line = origin + point(px(10.), lh + lh / 2.);
 
     // ⌘ (macOS) / Ctrl click: the host takes it and the caret stays.
-    cx.simulate_click(on_second_line, gpui::Modifiers::secondary_key());
+    let secondary = cx.update(|_, cx| gpui::Modifiers::secondary_key(cx));
+    cx.simulate_click(on_second_line, secondary);
     cx.update(|_, cx| {
         let clicks = clicks.borrow();
         assert_eq!(clicks.len(), 1);

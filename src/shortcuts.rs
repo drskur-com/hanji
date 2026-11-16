@@ -39,7 +39,7 @@ pub struct Shortcut {
     /// 키(gpui 키 표기). 첫 번째를 화면에 보이고, 앱이 묶는 항목은 모두 묶는다.
     pub keys: &'static [&'static str],
     /// 앱이 묶는 동작. `None`이면 에디터가 이미 묶은 키를 보이기만 한다.
-    bind: Option<fn(&str) -> KeyBinding>,
+    bind: Option<fn(&'static str) -> KeyBinding>,
 }
 
 impl Shortcut {
@@ -64,7 +64,7 @@ pub fn all() -> Vec<Shortcut> {
         category: Category,
         label: &'static str,
         keys: &'static [&'static str],
-        bind: fn(&str) -> KeyBinding,
+        bind: fn(&'static str) -> KeyBinding,
     ) -> Shortcut {
         Shortcut {
             category,

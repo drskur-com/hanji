@@ -1,11 +1,11 @@
 # gpui-base 패치
 
-writer는 gpui-base 0.8.0을 `vendor/gpui-base`에 두고 `[patch.crates-io]`로 연결한다(ADR-0006).
+writer는 gpui-base 0.9.1을 `vendor/gpui-base`에 두고 `[patch.crates-io]`로 연결한다(ADR-0006).
 에디터의 줄 스타일·줄 블록·접힌 줄·줄 오버레이·스크롤 보정이 이 패치다.
-## 지금 상태: `gpui-base-0.8.0-writer.patch`
+## 지금 상태: `gpui-base-0.9.1-writer-all.patch`
 
-원본 0.8.0(`a/src`) → 지금 vendor(`b/src`)의 전체 차이다. 깨끗한 0.8.0에 `patch -p1`로 적용하면
-vendor와 같아진다.
+원본 0.9.1(`a/`) → 지금 vendor(`b/`)의 전체 차이다. 깨끗한 0.9.1의 최상위 폴더에서 `patch -p1`로
+적용하면 vendor와 같아진다. `gpui-base-0.8.0-writer.patch`는 0.8.0 때의 같은 차이로, 기록으로 남긴다.
 
 우리 코드는 되도록 **원본 파일 밖**에 둔다. 원본 파일에는 연결부(구조체 필드, 호출 몇 줄, `mod` 선언)만
 남기고, 기능은 원본 파일의 자식 모듈(`#[path = "…_writer.rs"] mod writer;`)에 둔다. 자식 모듈은 부모의
@@ -25,9 +25,26 @@ vendor와 같아진다.
 `element.rs`의 레이아웃·그리기 연결부, `state.rs`의 필드와 붙여넣기·입력 변환 호출,
 `overscroll.rs`·`scroll_bounce.rs`의 스크롤 보정(ADR 없음, 아래 두 패치).
 
+### 0.9.1에서 달라진 점
+
+- `overscroll.rs`: `overscroll-tolerance` 패치의 고침(float 오차를 끝으로 읽지 않기, 글 가운데서 뗀
+  손가락은 끝을 던지지 않기)이 업스트림에 들어갔다(#3632, #3631). 업스트림 코드를 쓰고 허용치
+  `ROUNDING`만 0.5px로 둔다(업스트림 0.01px). 긴 글은 오프셋이 수백만 px라 `f32` 한 칸이 0.25~0.5px다.
+  `scroll-reverse`(되돌릴 때 끝이 손가락을 따라감)는 업스트림에 없어 그대로 남긴다.
+- `text_wrapper.rs`: 업스트림이 너비 측정 캐시(`WidthMeasurements`)와 크기 조절 중 줄바꿈 재사용
+  (`MeasuredWrap`·`WidthRange`, `update_lines`)을 넣었다. 우리 줄바꿈 클로저는 이 구조에 맞췄다.
+  보통 줄(글자 크기 1배, 첫 줄 들여쓰기·인라인 객체 없음)은 업스트림의 `measured_wrap`과 캐시를 쓴다.
+  나머지 줄은 `measured_wrap_boundaries_with`로 재고 `MeasuredWrap::uncached`로 낸다. 캐시가 글자로만
+  찾으므로 글자 크기가 다른 줄에 쓰면 틀린다. 너비로 재는 줄 블록(`line_block`)이 높이를 가진 줄은
+  다른 너비에서 재사용하지 않는다. `measured_wrap_boundaries`는 업스트림처럼 테스트용 기준 구현이다.
+- `element.rs`: 업스트림의 탭 정렬(`expand_tabs`)·접힌 줄 표시(`folded_lines`)와 우리 줄 블록·오버레이를
+  함께 둔다. 레이아웃 기록이 paint에서 prepaint 끝으로 옮겨졌다.
+- API: `Modifiers::secondary(cx)`·`secondary_key(cx)`가 `&App`을 받는다.
+
 ## gpui-base를 올릴 때
 
-1. 새 버전을 받아 `gpui-base-0.8.0-writer.patch`를 `patch -p1`로 적용한다. 새 파일(`*_writer.rs`)은 그대로
+1. 새 버전을 받아 `gpui-base-<지금 버전>-writer-all.patch`를 `patch -p1`로 적용한다.
+   충돌이 많으면 원본(지금 버전)을 공통 조상으로 두고 git으로 3-way 병합하면 연결부만 남는다. 새 파일(`*_writer.rs`)은 그대로
    들어가고, 충돌은 원본 파일의 연결부에서만 난다.
 2. 충돌을 고친 뒤 `README.md`(저장소 루트, gpui-base 테스트의 `include_str!`가 읽는다)를 잠시 두고
    `cargo test --lib --features test-support`로 gpui-base 테스트를 돌린다.
@@ -35,7 +52,7 @@ vendor와 같아진다.
 
 ```sh
 t=$(mktemp -d); ln -s <원본 gpui-base> $t/a; ln -s "$PWD/vendor/gpui-base" $t/b
-(cd $t && diff -ruN a/src b/src) > docs/patches/gpui-base-<버전>-writer.patch
+(cd $t && diff -ruN a/src b/src) > docs/patches/gpui-base-<버전>-writer-all.patch
 ```
 
 ## 기능별 패치(기록)
@@ -56,13 +73,16 @@ t=$(mktemp -d); ln -s <원본 gpui-base> $t/a; ln -s "$PWD/vendor/gpui-base" $t/
 
 # gpui-component 패치
 
-writer는 gpui-component 0.8.0도 `vendor/gpui-component`에 두고 `[patch.crates-io]`로 연결한다.
+writer는 gpui-component 0.9.1도 `vendor/gpui-component`에 두고 `[patch.crates-io]`로 연결한다.
 지금은 찾기(ctrl+F) 검색창의 한글 입력 버그 하나만 고친다. 고친 판이 나오면 지운다.
 
-## 지금 상태: `gpui-component-0.8.0-search-echo-ime.patch`
+## 지금 상태: `gpui-component-0.9.1-writer-all.patch`
 
-원본 0.8.0(`a/src`) → 지금 vendor(`b/src`)의 전체 차이다. 깨끗한 0.8.0에 `patch -p1`로 적용하면
-vendor와 같아진다.
+원본 0.9.1(`a/`) → 지금 vendor(`b/`)의 전체 차이다. 깨끗한 0.9.1의 최상위 폴더에서 `patch -p1`로
+적용하면 vendor와 같아진다. `gpui-component-0.8.0-search-echo-ime.patch`는 0.8.0 때의 같은 차이다.
+
+0.9.1에서 업스트림이 앵커 비교를 뺐다(#3772, 아래 원인 1). 검색창 값 비교(원인 2)는 남아 있어,
+그 자리를 `wrote_query`로 바꾸는 부분만 패치로 남는다.
 
 - **증상**: 시트 편집기에서 찾기(ctrl+F) 검색창에 한글을 치면 입력한 글자가 사라진다.
   첫 글자를 완성하고 둘째 글자로 넘어갈 때 검색창이 전체 선택되고, 이어서 치면 확정된
@@ -92,7 +112,10 @@ vendor와 같아진다.
 
 1. 새 버전을 `vendor/gpui-component`에 받고 이 패치를 `patch -p1`로 적용한다. 충돌은
    `input/overlay.rs`의 메아리 판별과 `input/search.rs`의 쿼리 쓰기에서만 난다.
-2. 테스트는 `vendor/gpui-component` 안에서 `cargo test --lib`로 돌린다. 원본 패키지에는
+2. 테스트는 `vendor/gpui-component` 안에서 `cargo test --lib`로 돌린다. 더 간단하게는 gpui-kit 저장소를
+   해당 판의 커밋(crate의 `.cargo_vcs_info.json`)으로 받아 `crates/component/src/input/`에 두 파일을
+   덮어쓰고 `cargo test -p gpui-component --lib -- input::overlay input::search`로 돌려도 된다.
+   패키지 안에서 돌린다면 원본 패키지에는
    모노리포의 테스트 자료가 빠져 있어 그대로는 컴파일이 안 된다. gpui-kit 저장소(버전 맞는
    태그)에서 잠시 받아 와 다음 자리에 두면 된다(끝나면 지운다).
    - `assets/assets/icons/arrow-up.svg`, `assets/assets/icons/search.svg` → `vendor/assets/assets/icons/`
@@ -103,5 +126,5 @@ vendor와 같아진다.
 
 ```sh
 t=$(mktemp -d); ln -s <원본 gpui-component> $t/a; ln -s "$PWD/vendor/gpui-component" $t/b
-(cd $t && diff -ruN a/src b/src) > docs/patches/gpui-component-<버전>-search-echo-ime.patch
+(cd $t && diff -ruN a/src b/src) > docs/patches/gpui-component-<버전>-writer-all.patch
 ```

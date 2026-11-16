@@ -1369,7 +1369,7 @@ fn change_card(
                 .max_h(px(260.0))
                 .overflow_y_scroll()
                 // 바깥 대화 목록도 같은 휠을 받으므로, diff가 넘쳐 스스로 스크롤할 때는 넘기지 않는다.
-                .on_scroll_wheel({
+                .on_scroll({
                     let scroll = scroll.clone();
                     move |_, _, cx| {
                         if scroll.max_offset().y > px(0.0) {

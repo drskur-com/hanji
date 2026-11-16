@@ -6,7 +6,7 @@ license = "MIT"
 
 [dependencies]
 # tree-sitter-*: 에디터 펜스 코드 블록 하이라이팅. markdown 문법이 펜스를 찾고 안쪽을 각 언어 문법에 넘긴다.
-gpui-kit = { version = "0.8", features = [
+gpui-kit = { version = "0.9", features = [
     "tree-sitter",
     "tree-sitter-markdown",
     "tree-sitter-javascript",
@@ -27,7 +27,7 @@ gpui-kit = { version = "0.8", features = [
 # 하이라이터에 편집 내용(`InputEdit`)을 넘길 때 쓴다. 버전은 gpui-component와 맞춘다.
 tree-sitter = "0.26"
 # `LineStyle`처럼 gpui-kit이 다시 내보내지 않는 타입용. 버전은 gpui-kit과 맞춘다.
-gpui-base = "0.8"
+gpui-base = "0.9"
 # UI 문자열 번역(`locales/<언어>/*.yml`). gpui-component와 같은 크레이트라 언어 설정을 함께 쓴다.
 rust-i18n = "4"
 sys-locale = "0.3"
@@ -59,7 +59,7 @@ krilla = "0.8"
 fontdb = "0.23"
 ttf-parser = "0.25"
 # 웹 주소 이미지 읽기·내려받기용 HTTP 클라이언트. 버전은 gpui(gpui-pre)와 맞춘다.
-reqwest_client = { version = "=0.3.9", package = "gpui-pre-reqwest-client" }
+reqwest_client = { version = "=0.3.12", package = "gpui-pre-reqwest-client" }
 # 로컬 캐시(할 일 색인 등, ADR-0024): 동기화하지 않는 OS 캐시 폴더의 키-값 파일. 값은 JSON으로 넣는다.
 redb = "4.4"
 serde_json = "1"
@@ -161,14 +161,15 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 
-# 제목 줄 확대를 위한 gpui-base 패치(PLAN §1.4).
+# 에디터 줄 스타일·블록·인라인 개체 등을 위한 gpui-base 패치(PLAN §1.4, `docs/patches/`).
 [patch.crates-io]
 gpui-base = { path = "vendor/gpui-base" }
 # Bedrock이 Claude의 도구 호출에 `"type": "tool_use"`를 붙이면서 rig-bedrock 0.45가 그것을 호스트 도구로
 # 잘못 읽어 호출이 사라진다(답이 오지 않는다). streaming.rs 한 줄을 고친 사본. 고친 판이 나오면 지운다.
 rig-bedrock = { path = "vendor/rig-bedrock" }
 # 에디터 찾기(ctrl+F) 검색창에서 한글(IME)을 치면 입력한 글자가 사라진다. 검색창이 자기가 쓴 쿼리의
-# 메아리를 바깥 변경으로 잘못 읽고 매 글자마다 `select_all`로 검색창을 다시 열기 때문이다. 검색창
-# 패널(`input/overlay.rs`)의 메아리 판별에서 앵커·검색창 값 비교를 빼고 검색창이 세션에 마지막으로
-# 쓴 쿼리(`input/search.rs`)를 보게 한 사본. 고친 판이 나오면 지운다.
+# 메아리를 바깥 변경으로 잘못 읽고 검색창을 다시 열어(`select_all`) 조합 중인 글자를 덮기 때문이다.
+# 앵커 비교는 0.9.1에서 빠졌지만(#3772), 확정한 글자와 다음 조합이 한 프레임 안에 겹치면 검색창 값
+# 비교가 여전히 틀린다. 메아리 판별(`input/overlay.rs`)이 검색창이 세션에 마지막으로 쓴 쿼리
+# (`input/search.rs`)를 보게 한 사본. 고친 판이 나오면 지운다.
 gpui-component = { path = "vendor/gpui-component" }

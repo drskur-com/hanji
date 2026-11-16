@@ -438,7 +438,7 @@ impl ExtensionBlocks {
             .when(preview, |this| this.ml_1().opacity(0.6))
             .when(token.is_selected() && !preview, |this| this.bg(pal.active))
             .on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                if event.click_count >= 2 || event.modifiers.secondary() {
+                if event.click_count >= 2 || event.modifiers.secondary(cx) {
                     window.prevent_default();
                     cx.stop_propagation();
                     let (app, range, source) = (app.clone(), range.clone(), opened.clone());
@@ -820,7 +820,7 @@ impl ExtensionBlocks {
                         .on_mouse_down(MouseButton::Left, move |event, window, cx| {
                             window.prevent_default();
                             cx.stop_propagation();
-                            if event.click_count >= 2 || event.modifiers.secondary() {
+                            if event.click_count >= 2 || event.modifiers.secondary(cx) {
                                 let app = app.clone();
                                 window.defer(cx, move |window, cx| {
                                     app.update(cx, |app, cx| {

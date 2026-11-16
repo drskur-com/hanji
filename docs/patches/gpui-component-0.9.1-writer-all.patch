@@ -1,0 +1,294 @@
+diff -ruN a/src/input/overlay.rs b/src/input/overlay.rs
+--- a/src/input/overlay.rs	2006-07-24 10:21:28
++++ b/src/input/overlay.rs	2026-11-16 14:38:07
+@@ -355,17 +355,27 @@
+             // focus from replacement, so preserve changes the panel already holds.
+             // External mode changes still move focus out of a hidden replace field.
+             //
+-            // `anchor_offset` stays out of this comparison. A changed query records
+-            // the viewport there in the same write the panel just made, and treating
+-            // that as a new session selects the field, so the next character
+-            // replaces the one just typed.
++            // The anchor offset must not gate the echo: every query change
++            // rewrites it, including the ones the panel itself typed, so
++            // comparing it reads the panel's own input back as an external
++            // change. The re-show then selects the field mid-typing, and a
++            // selection-swapping preedit (CJK IME) loses the text it had
++            // committed. The revision still catches an explicit re-invoke.
++            //
++            // The field's value cannot gate it either. A committed syllable
++            // and the next composition's preedit can both land before the
++            // next frame: the session holds the commit ("하") while the field
++            // already shows the preedit ("하ㄴ"), so comparing them would read
++            // the panel's own query as external and select the field exactly
++            // when the second syllable starts. What the panel last wrote is
++            // the stable mark of its own echo.
+             let was = &self.search_signature;
+             let query_echo = search_open
+                 && was.open
+                 && (was.replace_mode == search_signature.replace_mode
+                     || panel_replace_mode == search_signature.replace_mode)
+                 && was.activation_revision == search_signature.activation_revision
+-                && self.search.read(cx).query(cx) == search_session.query;
++                && self.search.read(cx).wrote_query(&search_session.query);
+             self.search_signature = search_signature;
+             if !query_echo {
+                 self.search.update(cx, |panel, cx| {
+@@ -473,6 +483,23 @@
+         }
+     }
+ 
++    /// A probe that paints the editor itself, so the state records a layout
++    /// (`last_layout`) and a query change anchors to a real viewport offset.
++    struct PaintedEditorProbe {
++        state: Entity<crate::input::EditorState>,
++    }
++
++    impl Render for PaintedEditorProbe {
++        fn render(
++            &mut self,
++            _window: &mut Window,
++            _cx: &mut gpui::Context<Self>,
++        ) -> impl IntoElement {
++            use gpui::{ParentElement as _, Styled as _};
++            div().max_size_full().child(crate::input::Editor::new(&self.state))
++        }
++    }
++
+     /// Asking for search again, while it is already open, must re-select the query.
+     ///
+     /// Re-invoking search leaves every other part of the session identical, so a
+@@ -528,6 +555,183 @@
+         });
+     }
+ 
++    /// The search field of the host a painted editor registered.
++    ///
++    /// Painting an editor whose search is open builds the one host production
++    /// uses, so a test that types has to reach that panel. A second host on the
++    /// same state answers the session from a field of its own, and the two then
++    /// disagree about what the query is.
++    fn painted_search_input<C: gpui::AppContext>(
++        state: &Entity<crate::input::EditorState>,
++        cx: &C,
++    ) -> Entity<crate::input::InputState> {
++        let id = state.entity_id();
++        cx.read_global::<InputOverlayRegistry<crate::input::EditorMode>, _>(|registry, cx| {
++            let (_, host) = registry
++                .hosts
++                .get(&id)
++                .expect("painting an open search registers a host");
++            host.search
++                .read_with(cx, |panel, _| panel.search_input().clone())
++        })
++    }
++
++    /// Typing in the search field must not re-show the panel.
++    ///
++    /// Every query change rewrites the session's anchor offset, including the
++    /// ones the panel itself typed. Reading that rewrite as an external change
++    /// re-invoked `show_with_focus` on the next frame, which selected the whole
++    /// field mid-typing: the next IME preedit (CJK input) then replaced the
++    /// selection and the text the user had committed disappeared.
++    #[gpui::test]
++    fn typing_in_the_search_field_keeps_the_field_untouched(cx: &mut gpui::TestAppContext) {
++        use gpui::EntityInputHandler as _;
++
++        cx.update(crate::init);
++        let (probe, cx) = cx.add_window_view(|window, cx| PaintedEditorProbe {
++            state: cx.new(|cx| crate::input::EditorState::new(window, cx).searchable(true)),
++        });
++        let state = probe.read_with(cx, |probe, _| probe.state.clone());
++
++        cx.update(|window, cx| {
++            state.update(cx, |state, cx| {
++                state.set_value("foo bar foo", window, cx);
++                state.open_search(false, cx);
++            });
++        });
++        // Painting records a layout, so a query change anchors to a real
++        // viewport offset, and registers the host every later frame syncs.
++        cx.update(|window, cx| window.draw(cx).clear(cx));
++        let search_input = painted_search_input(&state, cx);
++
++        // The caret sits in the field, as it does after typing.
++        cx.update(|window, cx| {
++            search_input.update(cx, |input, cx| input.unselect(window, cx));
++        });
++
++        // The user types a character: the field holds it and the panel's change
++        // subscription writes it into the session, which re-anchors the query to
++        // the viewport. The frame that follows must leave the field alone.
++        cx.update(|window, cx| {
++            search_input.update(cx, |input, cx| {
++                input.replace_text_in_range(None, "f", window, cx);
++            });
++        });
++        cx.update(|window, cx| {
++            let session = state.read(cx).search_session();
++            assert_eq!(session.query, "f");
++            assert!(
++                session.anchor_offset.is_some(),
++                "the painted layout gives a typed query an anchor, and only a \
++                 second write of the same query — the re-show — would clear it"
++            );
++            window.draw(cx).clear(cx);
++            assert!(
++                search_input.read(cx).selected_range().is_empty(),
++                "the panel's own query change must not re-select the field"
++            );
++            assert_eq!(search_input.read(cx).value(), "f");
++        });
++
++        // The user navigates (Enter) and keeps typing: the editor scrolls, so
++        // the next query change anchors to a different offset. That still must
++        // not read as an external change and re-select the field mid-typing.
++        cx.update(|window, cx| {
++            state.update(cx, |state, cx| {
++                state.next_search_match(cx);
++            });
++            search_input.update(cx, |input, cx| {
++                input.replace_text_in_range(None, "o", window, cx);
++            });
++        });
++        cx.update(|window, cx| {
++            window.draw(cx).clear(cx);
++            assert!(
++                search_input.read(cx).selected_range().is_empty(),
++                "a query change after navigation must not re-select the field"
++            );
++            assert_eq!(search_input.read(cx).value(), "fo");
++        });
++    }
++
++    /// A syllable committed while the next composition is already marked is
++    /// still the panel's own query change.
++    ///
++    /// The Korean IME commits the finished syllable in one input update and
++    /// marks the next one in the one after it, so the session holds the commit
++    /// ("하") while the field already shows the preedit ("하ㄴ") by the time a
++    /// frame syncs the panel. Reading the field's value as the query then
++    /// looked like a change from outside, which re-showed the panel and
++    /// selected the field; the next key replaced that selection and the
++    /// committed syllable vanished.
++    ///
++    /// The host is driven by hand here. Painting the editor would sync it at
++    /// the end of every update, and the frame that has to catch the divergence
++    /// is exactly the one that must be deferred past both IME calls.
++    #[gpui::test]
++    fn a_preedit_after_a_commit_is_not_an_external_query_change(cx: &mut gpui::TestAppContext) {
++        use gpui::EntityInputHandler as _;
++
++        cx.update(crate::init);
++        let (probe, cx) = cx.add_window_view(|window, cx| OverlayProbe {
++            state: cx.new(|cx| crate::input::EditorState::new(window, cx).searchable(true)),
++        });
++        let state = probe.read_with(cx, |probe, _| probe.state.clone());
++
++        cx.update(|window, cx| {
++            state.update(cx, |state, cx| {
++                state.set_value("하나 둘", window, cx);
++                state.open_search(false, cx);
++            });
++        });
++        let mut host = cx.update(|window, cx| InputOverlayHost::new(state.clone(), window, cx));
++        // The frame that opens the panel.
++        cx.update(|window, cx| {
++            host.sync(&state, window, cx);
++        });
++        let search_input = host.search.read_with(cx, |panel, _| panel.search_input().clone());
++
++        // The IME composes the first syllable and commits it: the panel's
++        // change subscription writes the commit into the session.
++        cx.update(|window, cx| {
++            search_input.update(cx, |input, cx| {
++                input.replace_and_mark_text_in_range(None, "ㅎ", Some(1..1), window, cx);
++                input.replace_and_mark_text_in_range(None, "하", Some(1..1), window, cx);
++                input.replace_text_in_range(None, "하", window, cx);
++            });
++        });
++        // The next key starts the following syllable. Marked text emits no
++        // change, so the session keeps the commit while the field shows both.
++        cx.update(|window, cx| {
++            search_input.update(cx, |input, cx| {
++                input.replace_and_mark_text_in_range(None, "ㄴ", Some(1..1), window, cx);
++            });
++        });
++        cx.update(|_, cx| {
++            assert_eq!(
++                state.read(cx).search_session().query,
++                "하",
++                "the commit must have reached the session, or this test proves nothing"
++            );
++            assert_eq!(search_input.read(cx).value(), "하ㄴ");
++        });
++
++        // The frame that syncs the panel.
++        cx.update(|window, cx| {
++            host.sync(&state, window, cx);
++        });
++        cx.update(|_, cx| {
++            assert_eq!(
++                search_input.read(cx).value(),
++                "하ㄴ",
++                "the next composition's preedit must survive the frame"
++            );
++            assert!(
++                search_input.read(cx).selected_range().is_empty(),
++                "the commit must not re-select the field once the preedit starts"
++            );
++        });
++    }
+     /// Reopening search must preserve navigation already owned by Base.
+     ///
+     /// Closing and reopening Find keeps the previous occurrence in browsers.
+diff -ruN a/src/input/search.rs b/src/input/search.rs
+--- a/src/input/search.rs	2006-07-24 10:21:28
++++ b/src/input/search.rs	2026-11-16 14:30:59
+@@ -64,6 +64,16 @@
+     replace_input: Entity<InputState>,
+     session: gpui_base::input::SearchSession,
+     input_width: Pixels,
++    /// The last query this panel wrote into the session.
++    ///
++    /// The session cannot say where a query came from, and the panel's input
++    /// may hold an in-progress IME composition the session has not seen yet:
++    /// marked text emits no `Change`, so the field can read "하ㄴ" while the
++    /// session still holds "하". Comparing the field to the session would then
++    /// mistake the panel's own commit for an external change as soon as the
++    /// next composition starts. Remembering what we wrote keeps that echo
++    /// recognizable no matter what preedit the field is showing.
++    last_written_query: Option<String>,
+ 
+     _subscriptions: Vec<Subscription>,
+ }
+@@ -77,9 +87,10 @@
+         self.session = session.clone();
+     }
+ 
+-    /// The query the panel's search input currently holds.
+-    pub(super) fn query(&self, cx: &App) -> gpui::SharedString {
+-        self.search_input.read(cx).value()
++    /// Whether the session query is one this panel wrote itself, and so is
++    /// an echo of the field rather than a change from outside.
++    pub(super) fn wrote_query(&self, query: &str) -> bool {
++        self.last_written_query.as_deref() == Some(query)
+     }
+ 
+     /// The panel's search input, so a test can assert what re-invoking search
+@@ -117,6 +128,7 @@
+                 replace_input,
+                 session: gpui_base::input::SearchSession::default(),
+                 input_width: Pixels::ZERO,
++                last_written_query: None,
+                 _subscriptions,
+             }
+         })
+@@ -160,6 +172,7 @@
+         cx: &mut Context<Self>,
+     ) {
+         let query = self.search_input.read(cx).value();
++        self.last_written_query = Some(query.to_string());
+         let editor = self.editor.clone();
+         let _ = editor.update(cx, |state, cx| {
+             state.set_search_query(query.clone(), self.session.case_insensitive, cx);

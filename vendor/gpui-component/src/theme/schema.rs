@@ -21,6 +21,7 @@ fn try_parse_theme_token(value: &str) -> anyhow::Result<ThemeToken> {
 /// Represents a theme configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct ThemeSet {
     /// The name of the theme set.
     pub name: SharedString,
@@ -35,6 +36,7 @@ pub struct ThemeSet {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct ThemeConfig {
     /// Whether this theme is the default theme.
     pub is_default: bool,
@@ -69,6 +71,9 @@ pub struct ThemeConfig {
     /// The border radius for large elements like Dialogs and Notifications, default is 8.
     #[serde(rename = "radius.lg")]
     pub radius_lg: Option<usize>,
+    /// The corner radius of client-decorated windows, default is 0.
+    #[serde(rename = "window.radius")]
+    pub window_radius: Option<usize>,
     /// Set shadows in the theme, for example the Input and Button, default is true.
     #[serde(rename = "shadow")]
     pub shadow: Option<bool>,
@@ -83,6 +88,7 @@ pub struct ThemeConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SemanticThemeConfig {
     pub colors: SemanticColorConfig,
     pub radius: SemanticRadiusConfig,
@@ -97,12 +103,14 @@ pub struct SemanticThemeConfig {
 /// semantic tokens does not change the legacy public struct shape.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SemanticThemeConfigFile {
     pub tokens: SemanticThemeConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SemanticColorConfig {
     pub background: Option<SharedString>,
     pub foreground: Option<SharedString>,
@@ -125,6 +133,7 @@ pub struct SemanticColorConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SemanticRadiusConfig {
     pub none: Option<f32>,
     pub sm: Option<f32>,
@@ -136,6 +145,7 @@ pub struct SemanticRadiusConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SemanticSpacingConfig {
     pub xxs: Option<f32>,
     pub xs: Option<f32>,
@@ -148,6 +158,7 @@ pub struct SemanticSpacingConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SemanticTextStyleConfig {
     pub size: Option<f32>,
     pub line_height: Option<f32>,
@@ -156,6 +167,7 @@ pub struct SemanticTextStyleConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SemanticTypographyConfig {
     pub sans: Option<SharedString>,
     pub mono: Option<SharedString>,
@@ -169,6 +181,7 @@ pub struct SemanticTypographyConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[non_exhaustive]
 pub struct SemanticShadowConfig {
     pub sm: Option<Vec<BoxShadow>>,
     pub md: Option<Vec<BoxShadow>>,
@@ -250,6 +263,7 @@ fn apply_text_style(config: &SemanticTextStyleConfig, token: &mut gpui_base::Tex
 }
 
 #[derive(Debug, Default, Clone, JsonSchema, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ThemeConfigColors {
     /// Used for accents such as hover background on MenuItem, ListItem, etc.
     #[serde(rename = "accent.background")]
@@ -1100,6 +1114,9 @@ impl Theme {
         if let Some(radius_lg) = config.radius_lg {
             self.radius_lg = px(radius_lg as f32);
         }
+        if let Some(window_radius) = config.window_radius {
+            self.window_radius = px(window_radius as f32);
+        }
         if let Some(shadow) = config.shadow {
             self.shadow = shadow;
         }
@@ -1189,6 +1206,20 @@ mod tests {
         assert_eq!(theme.primary, try_parse_color("#7c3aed").unwrap());
         assert_eq!(theme.radius, px(7.));
         assert_eq!(theme.semantic_tokens().spacing, Default::default());
+    }
+
+    #[test]
+    fn test_apply_config_reads_the_window_radius() {
+        let config = serde_json::from_value::<ThemeConfig>(serde_json::json!({
+            "name": "Rounded",
+            "mode": "dark",
+            "window.radius": 10
+        }))
+        .unwrap();
+        let mut theme = Theme::default();
+        assert_eq!(theme.window_radius, px(0.));
+        theme.apply_config(&std::rc::Rc::new(config));
+        assert_eq!(theme.window_radius, px(10.));
     }
 
     #[test]
