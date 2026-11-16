@@ -68,6 +68,80 @@ const DECLINED: &str = "The user declined this change. Do not retry it unless th
 /// 묻지 않을 도구 밖의 권한 질문을 거절할 때 돌려줄 글.
 const NOT_ALLOWED: &str = "This tool is not available in Hanji.";
 
+/// `claude`가 첫 출력을 낼 때까지 기다리는 시간. 인증을 못 찾으면 아무것도 내지 않고 멈춘다.
+const FIRST_OUTPUT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// `--restricted`가 읽지 않는 사용자 설정에서 다시 넘길 인증 키(최상위).
+const AUTH_KEYS: &[&str] = &[
+    "apiKeyHelper",
+    "awsAuthRefresh",
+    "awsCredentialExport",
+    "gcpAuthRefresh",
+    "modelOverrides",
+];
+
+/// 사용자 설정 `env`에서 다시 넘길 키의 앞부분.
+const AUTH_ENV_PREFIXES: &[&str] = &[
+    "ANTHROPIC_",
+    "AWS_",
+    "CLAUDE_CODE_USE_",
+    "CLAUDE_CODE_SKIP_",
+    "CLOUD_ML_",
+    "VERTEX_REGION_",
+];
+
+/// 사용자 설정 `env`에서 다시 넘길 키(통째로).
+const AUTH_ENV_KEYS: &[&str] = &[
+    "CLAUDE_CODE_API_KEY_HELPER_TTL_MS",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "NODE_EXTRA_CA_CERTS",
+];
+
+/// 사용자 설정(`~/.claude/settings.json`, `CLAUDE_CONFIG_DIR`이 있으면 그 안)에서 인증 키만 골라
+/// `--settings`에 줄 JSON을 만든다. `--restricted`는 사용자 설정을 읽지 않아, Bedrock·프록시·
+/// `apiKeyHelper`처럼 설정 파일로 인증하면 `claude`가 멈춘다. 라이브러리 안의 프로젝트 설정은
+/// 명령(`apiKeyHelper` 등)을 돌릴 수 있어 읽지 않는다. 넘길 것이 없으면 `None`.
+fn auth_settings() -> Option<String> {
+    let dir = match std::env::var_os("CLAUDE_CONFIG_DIR") {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => dirs::home_dir()?.join(".claude"),
+    };
+    let text = std::fs::read_to_string(dir.join("settings.json")).ok()?;
+    let settings = serde_json::from_str::<Value>(&text).ok()?;
+    pick_auth(&settings).map(|picked| picked.to_string())
+}
+
+/// 설정에서 인증 키만 고른다. 하나도 없으면 `None`.
+fn pick_auth(settings: &Value) -> Option<Value> {
+    let settings = settings.as_object()?;
+    let mut picked = serde_json::Map::new();
+    for key in AUTH_KEYS {
+        if let Some(value) = settings.get(*key) {
+            picked.insert(key.to_string(), value.clone());
+        }
+    }
+    let env: serde_json::Map<String, Value> = settings
+        .get("env")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| {
+            AUTH_ENV_KEYS.contains(&key.as_str())
+                || AUTH_ENV_PREFIXES
+                    .iter()
+                    .any(|prefix| key.starts_with(prefix))
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    if !env.is_empty() {
+        picked.insert("env".to_string(), Value::Object(env));
+    }
+    (!picked.is_empty()).then_some(Value::Object(picked))
+}
+
 /// 한 대화에 쓰는 Claude Code 설정.
 #[derive(Clone, Debug)]
 pub struct ClaudeCode {
@@ -131,13 +205,17 @@ impl Run<'_> {
         cancel: oneshot::Receiver<()>,
     ) -> Result<(StopReason, Option<String>), String> {
         let override_path = self.config.path.clone();
-        let binary = tokio::task::spawn_blocking(move || {
-            crate::agent_cli::find(crate::agent_cli::Cli::ClaudeCode, override_path.as_deref())
+        let (binary, auth) = tokio::task::spawn_blocking(move || {
+            let binary = crate::agent_cli::find(
+                crate::agent_cli::Cli::ClaudeCode,
+                override_path.as_deref(),
+            );
+            (binary, auth_settings())
         })
         .await
-        .ok()
-        .flatten()
-        .ok_or_else(|| t!("assistant.error.cli_missing", name = "Claude Code").to_string())?;
+        .unwrap_or_default();
+        let binary = binary
+            .ok_or_else(|| t!("assistant.error.cli_missing", name = "Claude Code").to_string())?;
 
         let mut command = std::process::Command::new(&binary);
         command
@@ -160,7 +238,11 @@ impl Run<'_> {
                 &self.config.model,
                 "--system-prompt",
                 &self.config.system,
-            ])
+            ]);
+        if let Some(auth) = &auth {
+            command.args(["--settings", auth]);
+        }
+        command
             .current_dir(&self.turn.cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -191,6 +273,9 @@ impl Run<'_> {
         let mut cancel = cancel;
         let mut approved = Approved::new();
         let mut resolved = None;
+        let first_output = tokio::time::sleep(FIRST_OUTPUT_TIMEOUT);
+        tokio::pin!(first_output);
+        let mut started = false;
         let outcome = loop {
             let line = tokio::select! {
                 line = lines.next_line() => line,
@@ -198,7 +283,18 @@ impl Run<'_> {
                     child.kill().await.ok();
                     return Ok((StopReason::Cancelled, resolved));
                 }
+                _ = &mut first_output, if !started => {
+                    child.kill().await.ok();
+                    return Err(t!(
+                        "assistant.error.cli_no_response",
+                        name = "Claude Code",
+                        seconds = FIRST_OUTPUT_TIMEOUT.as_secs(),
+                        program = "claude"
+                    )
+                    .to_string());
+                }
             };
+            started = true;
             let line = match line {
                 Ok(Some(line)) => line,
                 Ok(None) => break None,
@@ -447,6 +543,41 @@ mod tests {
         // 옛 이름 꼴(버전이 앞)은 이름을 만들지 않는다(별칭 이름을 쓴다).
         assert_eq!(display_name("claude-3-5-haiku"), None);
         assert_eq!(display_name("gpt-5"), None);
+    }
+
+    #[test]
+    fn picks_only_auth_settings() {
+        let settings = json!({
+            "awsCredentialExport": "claude default-credential-export",
+            "modelOverrides": { "claude-sonnet-5-5": "arn:aws:bedrock:x" },
+            "hooks": { "PreToolUse": [] },
+            "permissions": { "allow": ["Bash"] },
+            "env": {
+                "AWS_REGION": "us-west-2",
+                "CLAUDE_CODE_USE_BEDROCK": "1",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5",
+                "HTTPS_PROXY": "http://proxy",
+                "EDITOR": "vim",
+            },
+        });
+        assert_eq!(
+            pick_auth(&settings),
+            Some(json!({
+                "awsCredentialExport": "claude default-credential-export",
+                "modelOverrides": { "claude-sonnet-5-5": "arn:aws:bedrock:x" },
+                "env": {
+                    "AWS_REGION": "us-west-2",
+                    "CLAUDE_CODE_USE_BEDROCK": "1",
+                    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5",
+                    "HTTPS_PROXY": "http://proxy",
+                },
+            }))
+        );
+        // 구독 로그인만 쓰면 넘길 것이 없다(`--settings`를 붙이지 않는다).
+        assert_eq!(
+            pick_auth(&json!({ "theme": "dark", "env": { "EDITOR": "vim" } })),
+            None
+        );
     }
 
     #[tokio::test]

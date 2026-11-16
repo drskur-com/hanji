@@ -39,6 +39,8 @@ claude -p --input-format stream-json --output-format stream-json --include-parti
 - `text_delta`는 글 조각으로, `tool_use`는 도구 호출 알림으로 바꾼다.
 - `can_use_tool`(Edit·Write)은 파일 전체의 앞뒤 내용으로 diff를 만들어 권한을 묻는다. 허락하면 Claude Code가 쓴다(그 사이 바뀐 파일은 Claude Code가 막는다).
 - 멈추면(`session/cancel` 또는 연결이 끊기면) 프로세스를 끝낸다.
+- `--restricted`는 사용자 설정 파일을 읽지 않아, 인증을 설정 파일로 하는 사용자(Bedrock의 `awsCredentialExport`·`env.AWS_REGION`, `apiKeyHelper`, `ANTHROPIC_BASE_URL` 프록시 등)는 `claude`가 아무것도 내지 않고 멈췄다(2.1.325 실측). 그래서 사용자 설정(`~/.claude/settings.json`, `CLAUDE_CONFIG_DIR`)에서 인증 키만 골라 `--settings`로 다시 넘긴다: 최상위 `apiKeyHelper`·`awsAuthRefresh`·`awsCredentialExport`·`gcpAuthRefresh`·`modelOverrides`, `env`의 `ANTHROPIC_*`·`AWS_*`·`CLAUDE_CODE_USE_*`·`CLAUDE_CODE_SKIP_*`·`CLOUD_ML_*`·`VERTEX_REGION_*`·프록시·CA. hooks·permissions·플러그인은 넘기지 않는다. 구독 로그인(키체인)만 쓰면 넘길 것이 없어 붙이지 않는다. 라이브러리 안의 프로젝트 설정은 명령을 돌릴 수 있어 읽지 않는다. `env`의 모델 지정(`ANTHROPIC_DEFAULT_SONNET_MODEL` 등)도 넘어가 별칭이 터미널과 같은 모델로 가고, 그 모델은 `init`으로 보인다.
+- 60초 안에 첫 출력이 없으면 프로세스를 끝내고 인증을 확인하라고 알린다(브라우저 로그인을 기다리는 `awsAuthRefresh`도 여기에 걸린다).
 
 **Codex는 앱 안의 ACP 에이전트(어댑터)가 `codex app-server`(stdio JSON-RPC, 실험 기능)로 잇는다.** `codex exec`는 승인을 앱에 넘기지 못해 쓰지 않는다. 말 한 번마다 라이브러리 루트에서 띄우고 `initialize` → `thread/start` → `turn/start`를 보낸다.
 
