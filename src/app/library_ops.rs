@@ -303,12 +303,16 @@ impl HanjiApp {
             }
             return paths;
         }
-        // 라이브러리 화면은 섹션 아래 최상위 그룹만 그린다.
+        // 라이브러리 화면은 메모 그룹을 트리로, 프로젝트는 최상위만 그린다.
         let mut paths = Vec::new();
         for section in &lib.sections {
             for entry in &section.entries {
                 if let library::Entry::Group(group) = entry {
-                    paths.push(group.path.clone());
+                    if section.kind == library::SectionKind::Notes {
+                        push_visible_groups(group, &self.expanded_groups, &mut paths);
+                    } else {
+                        paths.push(group.path.clone());
+                    }
                 }
             }
         }

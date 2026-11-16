@@ -86,6 +86,19 @@ impl HanjiApp {
             header = Some(self.project_header(project, cx, pal).into_any_element());
             self.project_rows(project, current.as_ref(), &mut rows, cx, pal);
         } else if let Some(lib) = &self.library {
+            // 메모 그룹에 하위 그룹이 있으면 트리로 그리고, 다른 줄도 펼침 표시 칸만큼 들여 맞춘다.
+            let tree = lib
+                .section(library::SectionKind::Notes)
+                .is_some_and(|section| {
+                    section.entries.iter().any(|entry| {
+                    matches!(entry, library::Entry::Group(group) if !group.groups.is_empty())
+                })
+                });
+            let flat = if tree {
+                Disclosure::Leaf
+            } else {
+                Disclosure::None
+            };
             // 받아쓰기(ADR-0054): 섹션이 아니라 맨 위의 줄 하나다. 녹음 중이면 빨간 점과 지난 시간을 보인다.
             let selection = Selection::Group(lib.stt.path.clone());
             let selected = current.as_ref() == Some(&selection);
@@ -101,7 +114,7 @@ impl HanjiApp {
                         selected,
                         selection,
                         0,
-                        Disclosure::None,
+                        flat,
                     )
                     .mt_2()
                     .children(self.dictation_badge(cx, pal))
@@ -192,7 +205,7 @@ impl HanjiApp {
                             selected,
                             selection,
                             0,
-                            Disclosure::None,
+                            flat,
                         )
                         .into_any_element(),
                     );
@@ -209,7 +222,7 @@ impl HanjiApp {
                             selected,
                             Selection::Todos,
                             0,
-                            Disclosure::None,
+                            flat,
                         )
                         .into_any_element(),
                     );
@@ -221,127 +234,16 @@ impl HanjiApp {
                         continue;
                     };
                     has_group = true;
-                    let selection = Selection::Group(group.path.clone());
-                    let selected = self.group_is_selected(&group.path, current.as_ref());
-                    let row = self.library_row(
+                    self.push_library_group(
+                        group,
+                        kind,
+                        0,
+                        tree,
+                        current.as_ref(),
+                        &mut rows,
                         cx,
                         pal,
-                        format!("group-{}", group.path.display()).into(),
-                        icons::group_icon(group.icon.as_deref()),
-                        group.name.clone().into(),
-                        group
-                            .display_color()
-                            .and_then(|color| project_color(color, cx.theme())),
-                        selected,
-                        selection,
-                        0,
-                        Disclosure::None,
                     );
-                    // 다른 그룹에서 끌어온 시트를 이 그룹 끝에 놓는다(ADR-0019).
-                    let drop_group = group.path.clone();
-                    let drag_group = group.path.clone();
-                    let accepts = group.kind == library::GroupKind::Sheets;
-                    let row = row
-                        .drag_over::<DraggedSheet>(move |style, dragged, _, _| {
-                            if accepts && !dragged.files && dragged.group != drag_group {
-                                style.bg(pal.active)
-                            } else {
-                                style
-                            }
-                        })
-                        .on_drop(
-                            cx.listener(move |this, dragged: &DraggedSheet, window, cx| {
-                                if dragged.files || dragged.group == drop_group {
-                                    return;
-                                }
-                                this.move_sheets_to_group(
-                                    &dragged.group,
-                                    &drop_group,
-                                    &dragged.paths,
-                                    window,
-                                    cx,
-                                );
-                            }),
-                        );
-                    // 같은 범위의 다른 그룹 위로 끌어다 놓으면 그 그룹의 하위로 옮긴다.
-                    let row = self.group_drag_handlers(row, &group.path, pal, cx);
-                    // 프로젝트와 메모 그룹은 우클릭으로 편집·삭제한다. 받은 메모함(Inbox)은
-                    // 라이브러리가 늘 다시 만드는 기본 그룹이라 대상이 아니다.
-                    let is_project = kind == library::SectionKind::Projects;
-                    let editable = is_project
-                        || group
-                            .path
-                            .file_name()
-                            .is_none_or(|name| name != library::DEFAULT_INBOX);
-                    if editable {
-                        let app = cx.entity().downgrade();
-                        let dir = group.path.clone();
-                        rows.push(
-                            row.context_menu(move |menu, _, cx| {
-                                let (edit_app, edit_dir) = (app.clone(), dir.clone());
-                                let (delete_app, delete_dir) = (app.clone(), dir.clone());
-                                let danger = cx.theme().danger;
-                                menu.min_w(px(200.0))
-                                    .item(
-                                        PopupMenuItem::element(move |_, _| {
-                                            menu_row(icons::edit(), t!("library.menu.edit"), None)
-                                        })
-                                        .on_click(
-                                            move |_, window, cx| {
-                                                edit_app
-                                                    .update(cx, |app, cx| {
-                                                        if is_project {
-                                                            app.open_edit_project(
-                                                                &edit_dir, window, cx,
-                                                            )
-                                                        } else {
-                                                            app.open_edit_group(
-                                                                &edit_dir, true, window, cx,
-                                                            )
-                                                        }
-                                                    })
-                                                    .ok();
-                                            },
-                                        ),
-                                    )
-                                    .separator()
-                                    // 되돌리기 어려운 동작이라 빨간색으로 구분한다.
-                                    .item(
-                                        PopupMenuItem::element(move |_, _| {
-                                            menu_row(
-                                                icons::trash(),
-                                                t!("common.move_to_trash"),
-                                                Some(danger),
-                                            )
-                                        })
-                                        .on_click(
-                                            move |_, window, cx| {
-                                                delete_app
-                                                    .update(cx, |app, cx| {
-                                                        if is_project {
-                                                            app.confirm_delete_project(
-                                                                &delete_dir,
-                                                                window,
-                                                                cx,
-                                                            )
-                                                        } else {
-                                                            app.confirm_delete_group(
-                                                                &delete_dir,
-                                                                window,
-                                                                cx,
-                                                            )
-                                                        }
-                                                    })
-                                                    .ok();
-                                            },
-                                        ),
-                                    )
-                            })
-                            .into_any_element(),
-                        );
-                    } else {
-                        rows.push(row.into_any_element());
-                    }
                 }
 
                 if kind == library::SectionKind::Projects && !has_group {
@@ -451,6 +353,157 @@ impl HanjiApp {
                 }),
                 |this, open| this.w(px(PANEL_SLOT_WIDTH * open.clamp(0.0, 1.0))),
             )
+    }
+
+    /// 라이브러리 화면의 그룹 한 줄. 메모 그룹은 펼쳐져 있으면 하위 그룹도 이어서 넣는다.
+    /// `tree`면(메모에 하위 그룹이 하나라도 있으면) 줄마다 펼침 표시 칸을 둔다.
+    #[allow(clippy::too_many_arguments)]
+    fn push_library_group(
+        &self,
+        group: &library::Group,
+        kind: library::SectionKind,
+        depth: usize,
+        tree: bool,
+        current: Option<&Selection>,
+        rows: &mut Vec<AnyElement>,
+        cx: &mut Context<Self>,
+        pal: Palette,
+    ) {
+        let is_project = kind == library::SectionKind::Projects;
+        let expanded = !is_project && self.expanded_groups.contains(&group.path);
+        let disclosure = if !tree {
+            Disclosure::None
+        } else if is_project || group.groups.is_empty() {
+            Disclosure::Leaf
+        } else {
+            Disclosure::Branch { expanded }
+        };
+        let selection = Selection::Group(group.path.clone());
+        let selected = self.group_is_selected(&group.path, current);
+        let row = self.library_row(
+            cx,
+            pal,
+            format!("group-{}", group.path.display()).into(),
+            icons::group_icon(group.icon.as_deref()),
+            group.name.clone().into(),
+            group
+                .display_color()
+                .and_then(|color| project_color(color, cx.theme())),
+            selected,
+            selection,
+            depth,
+            disclosure,
+        );
+        // 다른 그룹에서 끌어온 시트를 이 그룹 끝에 놓는다(ADR-0019).
+        let drop_group = group.path.clone();
+        let drag_group = group.path.clone();
+        let accepts = group.kind == library::GroupKind::Sheets;
+        let row = row
+            .drag_over::<DraggedSheet>(move |style, dragged, _, _| {
+                if accepts && !dragged.files && dragged.group != drag_group {
+                    style.bg(pal.active)
+                } else {
+                    style
+                }
+            })
+            .on_drop(
+                cx.listener(move |this, dragged: &DraggedSheet, window, cx| {
+                    if dragged.files || dragged.group == drop_group {
+                        return;
+                    }
+                    this.move_sheets_to_group(
+                        &dragged.group,
+                        &drop_group,
+                        &dragged.paths,
+                        window,
+                        cx,
+                    );
+                }),
+            );
+        // 같은 범위의 다른 그룹 위로 끌어다 놓으면 그 그룹의 하위로 옮긴다.
+        let row = self.group_drag_handlers(row, &group.path, pal, cx);
+        // 프로젝트와 메모 그룹은 우클릭으로 편집·삭제한다. 받은 메모함(Inbox)은
+        // 라이브러리가 늘 다시 만드는 기본 그룹이라 대상이 아니다.
+        let editable = is_project
+            || group
+                .path
+                .file_name()
+                .is_none_or(|name| name != library::DEFAULT_INBOX);
+        if editable {
+            let app = cx.entity().downgrade();
+            let dir = group.path.clone();
+            rows.push(
+                row.context_menu(move |menu, _, cx| {
+                    let (edit_app, edit_dir) = (app.clone(), dir.clone());
+                    let (child_app, child_dir) = (app.clone(), dir.clone());
+                    let (delete_app, delete_dir) = (app.clone(), dir.clone());
+                    let danger = cx.theme().danger;
+                    menu.min_w(px(200.0))
+                        .item(
+                            PopupMenuItem::element(move |_, _| {
+                                menu_row(icons::edit(), t!("library.menu.edit"), None)
+                            })
+                            .on_click(move |_, window, cx| {
+                                edit_app
+                                    .update(cx, |app, cx| {
+                                        if is_project {
+                                            app.open_edit_project(&edit_dir, window, cx)
+                                        } else {
+                                            app.open_edit_group(&edit_dir, true, window, cx)
+                                        }
+                                    })
+                                    .ok();
+                            }),
+                        )
+                        // 메모 그룹은 우클릭으로 하위 그룹을 만든다.
+                        .when(!is_project, |menu| {
+                            menu.item(
+                                PopupMenuItem::element(move |_, _| {
+                                    menu_row(
+                                        icons::new_group(),
+                                        t!("library.menu.new_subgroup"),
+                                        None,
+                                    )
+                                })
+                                .on_click(move |_, window, cx| {
+                                    child_app
+                                        .update(cx, |app, cx| {
+                                            app.open_new_group(child_dir.clone(), true, window, cx)
+                                        })
+                                        .ok();
+                                }),
+                            )
+                        })
+                        .separator()
+                        // 되돌리기 어려운 동작이라 빨간색으로 구분한다.
+                        .item(
+                            PopupMenuItem::element(move |_, _| {
+                                menu_row(icons::trash(), t!("common.move_to_trash"), Some(danger))
+                            })
+                            .on_click(move |_, window, cx| {
+                                delete_app
+                                    .update(cx, |app, cx| {
+                                        if is_project {
+                                            app.confirm_delete_project(&delete_dir, window, cx)
+                                        } else {
+                                            app.confirm_delete_group(&delete_dir, window, cx)
+                                        }
+                                    })
+                                    .ok();
+                            }),
+                        )
+                })
+                .into_any_element(),
+            );
+        } else {
+            rows.push(row.into_any_element());
+        }
+
+        if expanded {
+            for child in &group.groups {
+                self.push_library_group(child, kind, depth + 1, tree, current, rows, cx, pal);
+            }
+        }
     }
 
     /// 이 그룹 줄이 선택됐는지. Shift로 넓힌 그룹과 지금 목록의 기준 그룹을 함께 본다.
