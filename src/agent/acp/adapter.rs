@@ -23,13 +23,61 @@ pub trait Runner: Send + Sync + 'static {
     /// 연결 이름(디버깅용).
     fn name(&self) -> &'static str;
 
-    /// `text`를 보내고 끝날 때까지 알림을 `turn`으로 넘긴다. `cancel`이 오면 멈추고 `Cancelled`로 끝낸다.
+    /// `input`을 보내고 끝날 때까지 알림을 `turn`으로 넘긴다. `cancel`이 오면 멈추고 `Cancelled`로 끝낸다.
     fn run(
         self: Arc<Self>,
         turn: Turn,
-        text: String,
+        input: Input,
         cancel: oneshot::Receiver<()>,
     ) -> BoxFuture<'static, Result<PromptResponse, String>>;
+}
+
+/// 말 한 번에 보낼 것: 글, 사용자가 붙인 그림, 읽기를 허락한 파일·폴더(ADR-0058).
+#[derive(Debug, Default)]
+pub struct Input {
+    pub text: String,
+    pub images: Vec<Image>,
+    /// 허락한 파일·폴더(절대 경로).
+    pub grants: Vec<PathBuf>,
+}
+
+/// 붙인 그림.
+#[derive(Debug)]
+pub struct Image {
+    /// base64로 적은 내용.
+    pub data: String,
+    pub mime: String,
+    /// 그림 파일(경로로 받는 CLI용).
+    pub path: Option<PathBuf>,
+}
+
+impl Input {
+    /// 프롬프트 블록에서 글·그림·허락한 경로를 모은다.
+    fn from_blocks(blocks: &[ContentBlock]) -> Self {
+        let mut input = Self::default();
+        let mut texts = Vec::new();
+        for block in blocks {
+            match block {
+                ContentBlock::Text(text) => texts.push(text.text.as_str()),
+                ContentBlock::Image(image) => input.images.push(Image {
+                    data: image.data.clone(),
+                    mime: image.mime_type.clone(),
+                    path: image.uri.as_deref().and_then(file_path),
+                }),
+                ContentBlock::ResourceLink(link) => {
+                    input.grants.extend(file_path(&link.uri));
+                }
+                _ => {}
+            }
+        }
+        input.text = texts.join("\n\n");
+        input
+    }
+}
+
+/// `file://` 주소의 경로.
+fn file_path(uri: &str) -> Option<PathBuf> {
+    url::Url::parse(uri).ok()?.to_file_path().ok()
 }
 
 /// 말 한 번의 맥락: 작업 폴더, 세션, 클라이언트 연결.
@@ -120,21 +168,13 @@ pub fn into_agent<R: Runner>(runner: R) -> impl ConnectTo<Client> {
                 let Some(cwd) = cwd else {
                     return responder.respond_with_internal_error("no session");
                 };
-                let text = request
-                    .prompt
-                    .iter()
-                    .filter_map(|block| match block {
-                        ContentBlock::Text(text) => Some(text.text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n\n");
+                let input = Input::from_blocks(&request.prompt);
                 let turn = Turn {
                     cwd,
                     session: request.session_id,
                     cx: cx.clone(),
                 };
-                let run = runner.clone().run(turn, text, cancel_rx);
+                let run = runner.clone().run(turn, input, cancel_rx);
                 // 말 한 번은 오래 걸리고 그동안 권한을 묻는다. 받는 쪽을 막지 않게 따로 돈다.
                 cx.spawn(async move {
                     match run.await {

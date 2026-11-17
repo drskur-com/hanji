@@ -13,10 +13,10 @@ use std::time::Duration;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::v1::ConnectionTo;
 use agent_client_protocol::v1::schema::{
-    CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest, PermissionOptionKind,
-    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionNotification, SessionUpdate, StopReason, TextContent,
-    ToolCallContent, ToolCallStatus, ToolKind,
+    CancelNotification, ContentBlock, ImageContent, InitializeRequest, NewSessionRequest,
+    PermissionOptionKind, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
+    RequestPermissionResponse, ResourceLink, SelectedPermissionOutcome, SessionNotification,
+    SessionUpdate, StopReason, TextContent, ToolCallContent, ToolCallStatus, ToolKind,
 };
 use agent_client_protocol::{Agent, Client, ConnectTo};
 use futures::channel::{mpsc, oneshot};
@@ -30,6 +30,8 @@ pub struct Prompt {
     pub cwd: PathBuf,
     /// 지금까지의 대화. 마지막은 이번에 보낼 사용자 말이다.
     pub turns: Vec<Turn>,
+    /// 이 대화의 첨부 폴더(ADR-0058). 없으면 그림은 원래 파일을 읽는다.
+    pub attachments: Option<PathBuf>,
 }
 
 /// `agent`에 말을 보내고 끝날 때까지 [`ChatEvent`]를 `tx`로 넘긴다. 받는 쪽(화면)이 대화를 버리면 멈춘다.
@@ -39,6 +41,11 @@ pub async fn run(
     tx: &mpsc::UnboundedSender<ChatEvent>,
 ) -> Result<(), String> {
     let text = prompt_text(&prompt.turns).ok_or_else(|| t!("assistant.error.nothing_to_send"))?;
+    let mut blocks = vec![ContentBlock::Text(TextContent::new(text))];
+    blocks.extend(attachment_blocks(
+        &prompt.turns,
+        prompt.attachments.as_deref(),
+    ));
     let cwd = prompt.cwd;
     // 승인 카드를 보인 도구 호출 → 카드 번호. 다 쓰였다는 알림이 오면 `Changed`·`ChangeFailed`로 바꾼다.
     let cards: Arc<Mutex<HashMap<String, u64>>> = Arc::default();
@@ -112,10 +119,7 @@ pub async fn run(
                 .await?;
             let session_id = session.session_id;
             let prompt = cx
-                .send_request(PromptRequest::new(
-                    session_id.clone(),
-                    vec![ContentBlock::Text(TextContent::new(text))],
-                ))
+                .send_request(PromptRequest::new(session_id.clone(), blocks))
                 .block_task();
             pin_mut!(prompt);
             // 화면이 대화를 버리면(멈춤) 에이전트에 그만하라고 알린다.
@@ -302,6 +306,50 @@ pub(super) fn relative(root: &Path, path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
+/// 첨부(ADR-0058)를 ACP 블록으로: 그림은 이미지 블록(파일 경로를 `uri`에), 허락한 파일·폴더는 `ResourceLink`.
+fn attachment_blocks(turns: &[Turn], dir: Option<&Path>) -> Vec<ContentBlock> {
+    use base64::Engine as _;
+    let mut blocks = Vec::new();
+    for attachment in turns.iter().flat_map(|turn| &turn.attachments) {
+        let Some(file) = attachment.image_file(dir) else {
+            continue;
+        };
+        let Some(image) = super::attach::load_image(&file) else {
+            continue;
+        };
+        let data = base64::engine::general_purpose::STANDARD.encode(&image.bytes);
+        let mut content = ImageContent::new(data, super::attach::mime(image.format));
+        content.uri = url::Url::from_file_path(&file).ok().map(String::from);
+        blocks.push(ContentBlock::Image(content));
+    }
+    for grant in super::attach::grants(turns) {
+        let Ok(uri) = url::Url::from_file_path(&grant) else {
+            continue;
+        };
+        let name = grant
+            .file_name()
+            .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        blocks.push(ContentBlock::ResourceLink(ResourceLink::new(name, uri)));
+    }
+    blocks
+}
+
+/// `path`(상대면 `root` 기준)가 `root` 안인지.
+pub(super) fn inside(root: &Path, path: &Path) -> bool {
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    if path
+        .components()
+        .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return false;
+    }
+    !Path::new(&relative(root, &path)).is_absolute()
+}
+
 /// 에이전트에 보낼 글. 앞의 말이 있으면 `<conversation>`에 묶어 앞에 둔다(에이전트는 세션을 남기지 않는다).
 fn prompt_text(turns: &[Turn]) -> Option<String> {
     let (last, earlier) = turns.split_last()?;
@@ -403,6 +451,7 @@ mod live {
                 turn(false, "Hi Mina."),
                 turn(true, "Shout my name, and change hello to hi in sheet.md."),
             ],
+            attachments: None,
             allowed_sites: Default::default(),
         };
         let mut events = crate::agent::stream(request);
@@ -431,6 +480,118 @@ mod live {
         std::fs::remove_dir_all(&root).ok();
         assert!(sheet.contains("hi world"), "{sheet}");
         assert!(text.to_lowercase().contains("mina"), "{text}");
+    }
+
+    /// 라이브러리 밖의 붙인 파일·폴더와 그림(ADR-0058)을 읽는지 본다.
+    fn attachments_end_to_end(
+        backend: crate::agent::Backend,
+        tools: Option<crate::agent::AgentTools>,
+    ) {
+        let base = std::env::temp_dir().join(format!(
+            "hanji-acp-attach-{}-{}",
+            backend.models_key(),
+            std::process::id()
+        ));
+        let root = base.join("library");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(outside.join("notes")).unwrap();
+        std::fs::write(outside.join("memo.md"), "The first code word is PELICAN.\n").unwrap();
+        std::fs::write(
+            outside.join("notes/deep.md"),
+            "The second code word is MARMALADE.\n",
+        )
+        .unwrap();
+        let png = outside.join("red.png");
+        image::RgbImage::from_pixel(64, 64, image::Rgb([220, 20, 20]))
+            .save(&png)
+            .unwrap();
+        let attach = |path: &Path| crate::agent::Attachment::from_path(path).unwrap();
+        let workspace = crate::agent::Workspace::new(&root);
+        let system = match tools {
+            Some(tools) => crate::agent::agent_system_prompt(None, tools, workspace.skills()),
+            None => crate::agent::system_prompt(None, true, workspace.skills(), &[]),
+        };
+        let request = crate::agent::ChatRequest {
+            backend,
+            workspace: Some(workspace),
+            system,
+            turns: vec![Turn {
+                user: true,
+                text: "Read the attached memo and the file in the attached folder. Reply with both code \
+                       words and the main color of the attached image, nothing else."
+                    .into(),
+                attachments: vec![
+                    attach(&outside.join("memo.md")),
+                    attach(&outside.join("notes")),
+                    attach(&png),
+                ],
+                ..Turn::default()
+            }],
+            allowed_sites: Default::default(),
+            attachments: None,
+        };
+        // 보낼 때와 같이 첨부를 글로 알린다.
+        let mut request = request;
+        let mut chat = crate::agent::Conversation::default();
+        let turn = request.turns.pop().unwrap();
+        request.turns = chat.send_with(&turn.text, None, turn.attachments).unwrap();
+        // 패널처럼 붙인 파일·폴더를 내장 도구에 허락한다.
+        request.workspace = request
+            .workspace
+            .map(|workspace| workspace.with_grants(crate::agent::grants(&request.turns)));
+        let mut events = crate::agent::stream(request);
+        let mut text = String::new();
+        futures::executor::block_on(async {
+            while let Some(event) = events.next().await {
+                match event {
+                    ChatEvent::Text(chunk) => text.push_str(&chunk),
+                    ChatEvent::Approve(approval) => {
+                        approval.reply.send(false).ok();
+                    }
+                    ChatEvent::Done => break,
+                    ChatEvent::Failed(err) => panic!("failed: {err}"),
+                    other => eprintln!("EVENT {other:?}"),
+                }
+            }
+        });
+        eprintln!("TEXT {text}");
+        std::fs::remove_dir_all(&base).ok();
+        let upper = text.to_uppercase();
+        assert!(upper.contains("PELICAN"), "{text}");
+        assert!(upper.contains("MARMALADE"), "{text}");
+        assert!(upper.contains("RED"), "{text}");
+    }
+
+    /// `cargo test --bin hanji claude_code_attachments -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn claude_code_attachments() {
+        attachments_end_to_end(
+            crate::agent::Backend::ClaudeCode {
+                model: "haiku".into(),
+            },
+            Some(crate::agent::AgentTools::ClaudeCode),
+        );
+    }
+
+    /// 내장 도구(Bedrock·Token Plan): `WRITER_AI_PROFILE=<프로필> cargo test --bin hanji builtin_attachments -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn builtin_attachments() {
+        attachments_end_to_end(crate::agent::bedrock::tests::live_backend(), None);
+    }
+
+    /// `cargo test --bin hanji codex_attachments -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn codex_attachments() {
+        attachments_end_to_end(
+            crate::agent::Backend::Codex {
+                model: String::new(),
+            },
+            Some(crate::agent::AgentTools::Codex),
+        );
     }
 
     #[test]

@@ -125,6 +125,16 @@ pub fn attachments() -> IconName {
     by_name("paperclip")
 }
 
+/// 어시스턴트에 붙인 파일(ADR-0058).
+pub fn attached_file() -> IconName {
+    IconName::FileText
+}
+
+/// 어시스턴트에 붙인 폴더(ADR-0058).
+pub fn attached_folder() -> IconName {
+    IconName::Folder
+}
+
 /// 파일 그룹의 파일 종류.
 pub fn file_kind(kind: crate::library::FileKind) -> IconName {
     use crate::library::FileKind;

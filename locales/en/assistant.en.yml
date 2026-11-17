@@ -90,6 +90,8 @@ assistant.error.cli_missing: "%{name} was not found. Check the installation in S
 assistant.error.cli_start: "Could not start %{name}: %{err}"
 assistant.error.cli_exited: "%{name} ended without a reply. Run %{program} in a terminal to check that you are signed in."
 assistant.error.cli_no_response: "%{name} gave no response for %{seconds} seconds, so it was stopped. Run %{program} in a terminal to check your sign-in and authentication settings."
+assistant.attach.missing: "(missing)"
+assistant.error.attach_image: "Could not attach the image: %{err}"
 assistant.error.agent_needs_library: "Open a library to use an agent."
 assistant.error.agent_stopped_early: "The agent hit a limit before finishing its reply."
 assistant.error.agent_refused: "The agent declined to answer this request."

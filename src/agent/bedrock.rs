@@ -111,6 +111,8 @@ pub struct ChatRequest {
     pub turns: Vec<Turn>,
     /// 이 대화에서 읽기를 허락한 사이트(`web_fetch`).
     pub allowed_sites: AllowedSites,
+    /// 이 대화의 첨부 폴더(그림을 쓴 곳, ADR-0058). 기록이 없으면 `None`이고 그림은 원래 파일을 읽는다.
+    pub attachments: Option<std::path::PathBuf>,
 }
 
 /// 이미지를 볼 수 없는 모델에 이미지 대신 넣는 글.
@@ -285,6 +287,27 @@ async fn web_fetch(
     Some((content, after))
 }
 
+/// 사용자 말: 글과, 붙인 그림(ADR-0058). 그림을 볼 수 없는 모델이면 그림 대신 알림 글을 둔다.
+fn user_message(turn: &Turn, dir: Option<&std::path::Path>, images: ImagePlacement) -> Message {
+    let pictures: Vec<UserContent> = turn
+        .attachments
+        .iter()
+        .filter_map(|attachment| attachment.image_file(dir))
+        .map(|file| match super::attach::load_image(&file) {
+            Some(image) if images != ImagePlacement::None => {
+                UserContent::Image(fetched_image(image))
+            }
+            _ => UserContent::text(NO_IMAGES),
+        })
+        .collect();
+    if pictures.is_empty() {
+        return Message::user(&turn.text);
+    }
+    let mut content = vec![UserContent::text(&turn.text)];
+    content.extend(pictures);
+    Message::User { content }
+}
+
 /// 도구 결과에 이미지를 모델이 받는 자리로 넣는다. 도구 결과 뒤에 붙여야 하면 그 이미지를 돌려준다.
 fn attach(
     content: &mut Vec<ToolResultContent>,
@@ -415,6 +438,7 @@ fn agent_prompt(request: &ChatRequest) -> Result<super::acp::Prompt, String> {
     Ok(super::acp::Prompt {
         cwd,
         turns: request.turns.clone(),
+        attachments: request.attachments.clone(),
     })
 }
 
@@ -479,21 +503,22 @@ async fn run(request: &ChatRequest, tx: &mpsc::UnboundedSender<ChatEvent>) -> Re
         .map(Workspace::definitions)
         .unwrap_or_default();
 
-    // 이번 답 동안 쌓이는 대화: 지난 말들 + 도구 호출과 그 결과.
+    // 도구 결과 이미지를 넣을 자리. 그래도 모델이 거절하면 이미지를 빼고 한 번 다시 보낸다.
+    let mut tool_images = image_placement(backend);
+
+    // 이번 답 동안 쌓이는 대화: 지난 말들(사용자가 붙인 그림 포함) + 도구 호출과 그 결과.
     let mut messages: Vec<Message> = request
         .turns
         .iter()
         .map(|turn| {
             if turn.user {
-                Message::user(&turn.text)
+                user_message(turn, request.attachments.as_deref(), tool_images)
             } else {
                 Message::assistant(&turn.text)
             }
         })
         .collect();
 
-    // 도구 결과 이미지를 넣을 자리. 그래도 모델이 거절하면 이미지를 빼고 한 번 다시 보낸다.
-    let mut tool_images = image_placement(backend);
     let mut retried_without_images = false;
     // 확장 이름 → (마지막으로 검토한 소스, 점수), 검토를 통과하지 못해 돌려보낸 횟수(ADR-0030).
     let mut reviews: HashMap<String, (String, Option<u8>)> = HashMap::new();
@@ -847,6 +872,7 @@ pub(super) mod tests {
                 text: "한 문장으로 인사해 줘.".into(),
                 ..Turn::default()
             }],
+            attachments: None,
             allowed_sites: AllowedSites::default(),
         });
         let mut chunks = 0;
@@ -900,6 +926,7 @@ mod live_tools {
                 text: question,
                 ..Turn::default()
             }],
+            attachments: None,
             allowed_sites: AllowedSites::default(),
         });
         let start = std::time::Instant::now();

@@ -418,7 +418,7 @@ fn is_image(content_type: &str) -> bool {
 /// 이미지를 풀어 크기를 보고, 크거나 모델이 못 받는 형식이면 줄여 PNG(투명)나 JPEG로 다시 만든다.
 /// (이미지, 원래 크기, 넘기는 크기).
 #[allow(clippy::type_complexity)]
-fn prepare_image(body: &[u8]) -> Result<(FetchedImage, (u32, u32), (u32, u32)), String> {
+pub(super) fn prepare_image(body: &[u8]) -> Result<(FetchedImage, (u32, u32), (u32, u32)), String> {
     let reader = image::ImageReader::new(std::io::Cursor::new(body))
         .with_guessed_format()
         .map_err(|err| err.to_string())?;

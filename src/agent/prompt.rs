@@ -181,7 +181,8 @@ Write, Glob and Grep. Copy old_string exactly as read when you edit."
             }
             AgentTools::Codex => {
                 "You work in the library folder (your working directory). Read and search files only with \
-read-only shell commands inside the library folder (cat, sed -n, ls, rg); other commands are declined. Change files only \
+read-only shell commands (cat, sed -n, ls, rg) inside the library folder or in files and folders the user attached \
+(given as absolute paths); other commands are declined. Change files only \
 with apply_patch, never with shell commands or scripts. You cannot browse the web."
             }
         }

@@ -15,6 +15,8 @@ use super::Turn;
 
 /// 기록 파일 이름.
 const FILE_NAME: &str = "conversations.redb";
+/// 대화마다 붙인 그림을 두는 폴더(기록 파일 옆, ADR-0058): `attachments/<대화 id>/<해시>.<확장자>`.
+const ATTACHMENTS_DIR: &str = "attachments";
 
 /// 대화 id → 요약(JSON).
 const META: TableDefinition<u64, &[u8]> = TableDefinition::new("conversations");
@@ -67,6 +69,8 @@ impl Summary {
 /// 라이브러리 하나의 대화 기록.
 pub struct History {
     db: Database,
+    /// 첨부 폴더([`ATTACHMENTS_DIR`]).
+    attachments: PathBuf,
     /// 마지막으로 준 대화 번호. 같은 밀리초에 만들어도 겹치지 않게 한다.
     last_id: Mutex<u64>,
 }
@@ -86,6 +90,7 @@ impl History {
         let db = Database::create(path).map_err(|err| err.to_string())?;
         let history = Self {
             db,
+            attachments: path.with_file_name(ATTACHMENTS_DIR),
             last_id: Mutex::new(0),
         };
         let last = history.read(|txn| {
@@ -98,7 +103,66 @@ impl History {
             .last_id
             .lock()
             .unwrap_or_else(|err| err.into_inner()) = last.unwrap_or(0);
+        history.sweep_attachments();
         Ok(history)
+    }
+
+    /// 대화 `id`의 첨부 폴더. 아직 없을 수 있다.
+    pub fn attachments_dir(&self, id: u64) -> PathBuf {
+        self.attachments.join(id.to_string())
+    }
+
+    /// 기록에 없는 대화의 첨부 폴더를 지운다(쓰거나 지우다 앱이 꺼졌을 때 남은 것).
+    fn sweep_attachments(&self) {
+        let Ok(entries) = std::fs::read_dir(&self.attachments) else {
+            return;
+        };
+        let known: std::collections::HashSet<u64> = self
+            .read(|txn| {
+                let mut ids = std::collections::HashSet::new();
+                for entry in txn.open_table(META)?.iter()? {
+                    ids.insert(entry?.0.value());
+                }
+                Ok(ids)
+            })
+            .unwrap_or_default();
+        for entry in entries.filter_map(Result::ok) {
+            let id = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<u64>().ok());
+            if id.is_some_and(|id| !known.contains(&id)) {
+                std::fs::remove_dir_all(entry.path()).ok();
+            }
+        }
+    }
+
+    /// 대화의 첨부 폴더에서 어느 말에도 없는 그림을 지운다(말을 고쳐 보내 뒤의 말이 빠졌을 때).
+    fn prune_attachments(&self, id: u64, turns: &[Turn]) {
+        let dir = self.attachments_dir(id);
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return;
+        };
+        let used: std::collections::HashSet<&str> = turns
+            .iter()
+            .flat_map(|turn| &turn.attachments)
+            .filter_map(|attachment| attachment.stored.as_deref())
+            .collect();
+        let mut left = false;
+        for entry in entries.filter_map(Result::ok) {
+            if entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| used.contains(name))
+            {
+                left = true;
+            } else {
+                std::fs::remove_file(entry.path()).ok();
+            }
+        }
+        if !left {
+            std::fs::remove_dir(&dir).ok();
+        }
     }
 
     /// 새 대화 번호.
@@ -166,7 +230,9 @@ impl History {
             txn.commit()?;
             Ok(())
         };
-        write().map_err(|err| err.to_string())
+        write().map_err(|err| err.to_string())?;
+        self.prune_attachments(summary.id, turns);
+        Ok(())
     }
 
     /// 대화를 지운다.
@@ -181,7 +247,10 @@ impl History {
             txn.commit()?;
             Ok(())
         };
-        write().map_err(|err| err.to_string())
+        write().map_err(|err| err.to_string())?;
+        // 기록을 먼저 지우고 그림을 지운다(중간에 꺼지면 남은 폴더는 다음에 열 때 지운다).
+        std::fs::remove_dir_all(self.attachments_dir(id)).ok();
+        Ok(())
     }
 
     /// 읽기 트랜잭션. 아직 쓴 적이 없어 테이블이 없으면 기본값을 돌려준다.
@@ -254,6 +323,47 @@ mod tests {
         let (history, dir) = open("empty");
         assert!(history.list().is_empty());
         assert_eq!(history.load(1), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn attachment_files_follow_turns() {
+        let (history, dir) = open("attachments");
+        let summary = Summary {
+            id: history.next_id(),
+            ..Summary::default()
+        };
+        let folder = history.attachments_dir(summary.id);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("a.png"), "a").unwrap();
+        std::fs::write(folder.join("b.png"), "b").unwrap();
+        let with = |name: &str| Turn {
+            user: true,
+            attachments: vec![crate::agent::Attachment {
+                kind: crate::agent::AttachmentKind::Image,
+                path: format!("/pics/{name}").into(),
+                stored: Some(name.into()),
+            }],
+            ..Turn::default()
+        };
+        let mut turns = vec![with("a.png"), turn(false, "답", None), with("b.png")];
+        history.save(&summary, &turns, 0).unwrap();
+        assert!(folder.join("b.png").is_file());
+        // 뒤의 말이 빠지면 그 그림도 지운다.
+        turns.truncate(2);
+        history.save(&summary, &turns, 2).unwrap();
+        assert!(folder.join("a.png").is_file());
+        assert!(!folder.join("b.png").exists());
+        // 기록에 없는 대화의 폴더는 다시 열 때 지운다.
+        let orphan = history.attachments_dir(42);
+        std::fs::create_dir_all(&orphan).unwrap();
+        drop(history);
+        let history = History::open_at(&dir.join(FILE_NAME)).unwrap();
+        assert!(!orphan.exists());
+        assert!(folder.join("a.png").is_file());
+        // 대화를 지우면 폴더도 지운다.
+        history.delete(summary.id).unwrap();
+        assert!(!folder.exists());
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -26,6 +26,8 @@ use crate::{agent, icons};
 pub(super) struct LiveChat {
     /// 입력창. Enter로 보내고 Shift+Enter로 줄을 바꾼다.
     input: Entity<TextareaState>,
+    /// 다음 말에 붙일 그림·파일·폴더(ADR-0058). 패널에 끌어다 놓아 붙이고, 칩의 ×로 뺀다.
+    attached: Vec<agent::Attachment>,
     conversation: agent::Conversation,
     /// 기록에 쓴 대화의 요약과 쓴 말 수. 아직 쓰지 않은 새 대화면 `None`.
     saved: Option<Saved>,
@@ -123,6 +125,7 @@ impl LiveChat {
         );
         Self {
             input,
+            attached: Vec::new(),
             conversation: agent::Conversation::default(),
             saved: None,
             summaries: Vec::new(),
@@ -301,6 +304,7 @@ impl HanjiApp {
             () => {
                 let turns = live.conversation.turns();
                 let streaming = live.conversation.is_streaming();
+                let attachments_dir = self.assistant_attachments_dir();
                 let last = turns.len().saturating_sub(1);
                 div()
                     .id("assistant-live-messages")
@@ -323,7 +327,13 @@ impl HanjiApp {
                         };
                         let id = ("assistant-live-message", ix);
                         if turn.user {
-                            message_bubble(id, true, text, pal)
+                            user_bubble(
+                                id,
+                                text,
+                                &turn.attachments,
+                                attachments_dir.as_deref(),
+                                pal,
+                            )
                         } else {
                             self.render_reply(id, text, &turn.activity, cx, pal)
                         }
@@ -347,7 +357,7 @@ impl HanjiApp {
         // 답을 받는 중에는 보내기 대신 멈추기 버튼을 둔다.
         let can_send = !live.conversation.is_streaming()
             && self.assistant_model_usable(cx)
-            && !live.input.read(cx).value().trim().is_empty();
+            && (!live.input.read(cx).value().trim().is_empty() || !live.attached.is_empty());
         let send_button = if live.conversation.is_streaming() {
             icon_button("assistant-stop", icons::stop(), true, pal)
                 .on_click(cx.listener(|this, _, window, cx| this.stop_assistant_reply(window, cx)))
@@ -372,11 +382,37 @@ impl HanjiApp {
                     .border_1()
                     .border_color(pal.panel_border)
                     .bg(pal.panel)
-                    .child(
-                        div()
-                            .text_sm()
-                            .child(Textarea::new(&live.input).appearance(false)),
-                    )
+                    .when(!live.attached.is_empty(), |this| {
+                        this.child(self.render_attached(cx, pal))
+                    })
+                    .child({
+                        // Finder에서 복사한 파일을 붙여 넣으면 글 대신 첨부로 붙인다(ADR-0058).
+                        let app = cx.entity().downgrade();
+                        div().text_sm().child(
+                            Textarea::new(&live.input).appearance(false).on_paste(
+                                move |item, window, cx| {
+                                    let paths: Vec<std::path::PathBuf> = item
+                                        .entries()
+                                        .iter()
+                                        .filter_map(|entry| match entry {
+                                            ClipboardEntry::ExternalPaths(paths) => {
+                                                Some(paths.paths().to_vec())
+                                            }
+                                            _ => None,
+                                        })
+                                        .flatten()
+                                        .collect();
+                                    if paths.is_empty() {
+                                        return false;
+                                    }
+                                    app.update(cx, |this, cx| {
+                                        this.attach_to_assistant(&paths, window, cx);
+                                    })
+                                    .is_ok()
+                                },
+                            ),
+                        )
+                    })
                     // 아래 줄: 모델 고르기와 보내기(멈추기) 버튼.
                     .child(
                         div()
@@ -395,6 +431,7 @@ impl HanjiApp {
         });
 
         let panel = div()
+            .id("assistant-panel")
             .w(px(ASSISTANT_PANEL_WIDTH))
             .h_full()
             .flex()
@@ -402,6 +439,13 @@ impl HanjiApp {
             .bg(pal.background)
             .border_l_1()
             .border_color(pal.border)
+            // 파일·폴더·그림을 끌어다 놓으면 다음 말에 붙인다(ADR-0058).
+            .when(configured, |this| {
+                this.drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(pal.hover))
+                    .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                        this.attach_to_assistant(paths.paths(), window, cx);
+                    }))
+            })
             .child(toolbar)
             .map(|this| {
                 if self.assistant_history {
@@ -758,7 +802,9 @@ impl HanjiApp {
         else {
             return;
         };
-        if text.trim().is_empty() || self.assistant_chat.conversation.is_streaming() {
+        if (text.trim().is_empty() && self.assistant_chat.attached.is_empty())
+            || self.assistant_chat.conversation.is_streaming()
+        {
             return;
         }
         // 에이전트가 열린 시트를 고칠 수 있으므로 먼저 저장해 둔다. 저장하지 않은 변경이 남아 있으면
@@ -773,10 +819,17 @@ impl HanjiApp {
             .map(|library| agent::Workspace::new(&library.root));
         let system = self.assistant_system_prompt(workspace.as_ref(), cx);
         let sheet = self.open_sheet_path();
+        let attachments_dir = self.store_assistant_images(window, cx);
         let chat = &mut self.assistant_chat;
-        let Some(turns) = chat.conversation.send(&text, sheet.as_deref()) else {
+        let attached = std::mem::take(&mut chat.attached);
+        let Some(turns) = chat
+            .conversation
+            .send_with(&text, sheet.as_deref(), attached)
+        else {
             return;
         };
+        // 이 대화에 붙인 파일·폴더는 읽기를 허락한다.
+        let workspace = workspace.map(|workspace| workspace.with_grants(agent::grants(&turns)));
 
         // 기록을 보고 있었어도 대화로 돌아와 보낸다.
         self.assistant_history = false;
@@ -791,6 +844,7 @@ impl HanjiApp {
             system,
             turns,
             allowed_sites: chat.conversation.allowed_sites(),
+            attachments: attachments_dir,
         });
         chat.reply = Some(cx.spawn_in(window, async move |this, cx| {
             while let Some(event) = events.next().await {
@@ -1000,7 +1054,8 @@ impl HanjiApp {
         let chat = &mut self.assistant_chat;
         if let Some(sent) = chat.conversation.apply(event) {
             chat.input
-                .update(cx, |input, cx| input.set_value(sent, window, cx));
+                .update(cx, |input, cx| input.set_value(sent.text, window, cx));
+            chat.attached = sent.attachments;
         }
         chat.scroll.scroll_to_bottom();
         if finished {
@@ -1027,6 +1082,7 @@ impl HanjiApp {
         chat.reply = None;
         chat.conversation.clear();
         chat.saved = None;
+        chat.attached.clear();
         chat.change_scrolls.get_mut().clear();
         cx.notify();
     }
@@ -1184,6 +1240,98 @@ impl HanjiApp {
             .summaries
             .retain(|summary| summary.id != id);
         cx.notify();
+    }
+
+    /// 끌어다 놓은 경로를 다음 말의 첨부로 더한다(이미 붙인 것은 빼고). 기록 화면이었으면 대화로 돌아온다.
+    fn attach_to_assistant(
+        &mut self,
+        paths: &[std::path::PathBuf],
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let chat = &mut self.assistant_chat;
+        for attachment in paths
+            .iter()
+            .filter_map(|path| agent::Attachment::from_path(path))
+        {
+            if !chat
+                .attached
+                .iter()
+                .any(|known| known.path == attachment.path)
+            {
+                chat.attached.push(attachment);
+            }
+        }
+        self.assistant_history = false;
+        cx.notify();
+    }
+
+    /// 지금 대화의 첨부 폴더(기록에 쓸 번호가 있을 때).
+    fn assistant_attachments_dir(&self) -> Option<std::path::PathBuf> {
+        let store = self.assistant_store.as_ref()?.1.as_ref()?;
+        let id = self.assistant_chat.saved.as_ref()?.summary.id;
+        Some(store.attachments_dir(id))
+    }
+
+    /// 보낼 그림을 줄여 대화의 첨부 폴더에 쓰고(기록 번호가 없으면 지금 준다) 그 폴더를 돌려준다. 기록이 없으면
+    /// `None`이고 그림은 원래 파일을 읽는다. 쓰지 못한 그림은 알리고 원래 파일을 쓴다.
+    fn store_assistant_images(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<std::path::PathBuf> {
+        let store = self.assistant_store(window, cx)?;
+        let chat = &mut self.assistant_chat;
+        let saved = chat.saved.get_or_insert_with(|| Saved {
+            summary: agent::Summary {
+                id: store.next_id(),
+                created: agent::now_millis(),
+                ..agent::Summary::default()
+            },
+            persisted: 0,
+        });
+        let dir = store.attachments_dir(saved.summary.id);
+        let mut failed = Vec::new();
+        for attachment in &mut chat.attached {
+            if attachment.kind != agent::AttachmentKind::Image {
+                continue;
+            }
+            match agent::store_image(&attachment.path, &dir) {
+                Ok(name) => attachment.stored = Some(name),
+                Err(err) => failed.push(format!("{}: {err}", attachment.name())),
+            }
+        }
+        for err in failed {
+            self.notify(t!("assistant.error.attach_image", err = err), window, cx);
+        }
+        Some(dir)
+    }
+
+    /// 입력창 위의 첨부 칩. 그림은 작은 썸네일, 파일·폴더는 아이콘과 이름이고, ×로 뺀다.
+    fn render_attached(&self, cx: &mut Context<Self>, pal: Palette) -> impl IntoElement {
+        div().flex().flex_wrap().gap_1().px_1().pt_1().children(
+            self.assistant_chat
+                .attached
+                .iter()
+                .enumerate()
+                .map(|(ix, attachment)| {
+                    attachment_chip(("assistant-attached", ix), attachment, None, pal).child(
+                        div()
+                            .id(("assistant-attached-remove", ix))
+                            .flex_shrink_0()
+                            .cursor_pointer()
+                            .text_color(pal.muted)
+                            .hover(|this| this.text_color(pal.foreground))
+                            .child(Icon::new(icons::close()).xsmall())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if ix < this.assistant_chat.attached.len() {
+                                    this.assistant_chat.attached.remove(ix);
+                                }
+                                cx.notify();
+                            })),
+                    )
+                }),
+        )
     }
 
     /// 열린 시트의 라이브러리 루트 기준 경로(파일 도구가 쓰는 경로).
@@ -1574,6 +1722,124 @@ fn diff_line(line: &agent::DiffLine, pal: Palette) -> AnyElement {
 /// AI를 쓸 준비가 됐는지: 제공자를 골랐고, Bedrock이면 AWS 프로필, Token Plan이면 API 키가 있다.
 fn ai_configured(cx: &App) -> bool {
     agent::Backend::from_prefs(cx.global::<crate::settings::Prefs>()).is_some()
+}
+
+/// 내 말: 붙인 그림(썸네일)과 파일·폴더 칩을 말풍선 위에 둔다(ADR-0058). 그림은 대화의 첨부 폴더(`dir`)에서,
+/// 없으면 원래 파일에서 그리고, 둘 다 없으면 "파일 없음" 칩이다.
+fn user_bubble(
+    id: (&'static str, usize),
+    text: SharedString,
+    attachments: &[agent::Attachment],
+    dir: Option<&std::path::Path>,
+    pal: Palette,
+) -> AnyElement {
+    let bubble = (!text.is_empty()).then(|| message_bubble(id, true, text, pal));
+    if attachments.is_empty() {
+        return bubble.unwrap_or_else(|| div().into_any_element());
+    }
+    let (images, others): (Vec<_>, Vec<_>) = attachments
+        .iter()
+        .enumerate()
+        .partition(|(_, attachment)| attachment.kind == agent::AttachmentKind::Image);
+    let thumbnails = images.into_iter().map(|(ix, attachment)| {
+        let element_id = (
+            SharedString::from(format!("{}-image", id.0)),
+            id.1 * 100 + ix,
+        );
+        match attachment.image_file(dir) {
+            Some(file) => {
+                let modified = crate::library::modified_nanos(&file);
+                div()
+                    .id(element_id)
+                    .size(px(THUMBNAIL_SIZE))
+                    .rounded_md()
+                    .overflow_hidden()
+                    .border_1()
+                    .border_color(pal.panel_border)
+                    .tooltip(path_tooltip(attachment))
+                    .child(
+                        img(crate::thumbnail::source(file, modified, px(THUMBNAIL_SIZE)))
+                            .size_full()
+                            .object_fit(ObjectFit::Cover),
+                    )
+                    .into_any_element()
+            }
+            None => attachment_chip(element_id, attachment, Some(false), pal).into_any_element(),
+        }
+    });
+    let chips = others.into_iter().map(|(ix, attachment)| {
+        let element_id = (
+            SharedString::from(format!("{}-file", id.0)),
+            id.1 * 100 + ix,
+        );
+        attachment_chip(element_id, attachment, Some(attachment.path.exists()), pal)
+            .into_any_element()
+    });
+    div()
+        .flex()
+        .flex_col()
+        .items_end()
+        .gap_1()
+        .child(
+            div()
+                .max_w(px(ASSISTANT_PANEL_WIDTH * 0.8))
+                .flex()
+                .flex_wrap()
+                .justify_end()
+                .gap_1()
+                .children(thumbnails)
+                .children(chips),
+        )
+        .children(bubble)
+        .into_any_element()
+}
+
+/// 대화 내역의 그림 썸네일 크기.
+const THUMBNAIL_SIZE: f32 = 72.0;
+
+/// 첨부 칩: 종류 아이콘과 이름. `exists`가 `Some(false)`면 원래 파일이 없다고 보인다.
+fn attachment_chip(
+    id: impl Into<ElementId>,
+    attachment: &agent::Attachment,
+    exists: Option<bool>,
+    pal: Palette,
+) -> Stateful<Div> {
+    let missing = exists == Some(false);
+    let icon = match attachment.kind {
+        agent::AttachmentKind::Image => icons::image(),
+        agent::AttachmentKind::File => icons::attached_file(),
+        agent::AttachmentKind::Folder => icons::attached_folder(),
+    };
+    div()
+        .id(id)
+        .max_w(px(220.0))
+        .flex()
+        .items_center()
+        .gap_1()
+        .px_2()
+        .py(px(2.0))
+        .rounded_md()
+        .bg(pal.hover)
+        .text_xs()
+        .text_color(if missing { pal.muted } else { pal.foreground })
+        .tooltip(path_tooltip(attachment))
+        .child(Icon::new(icon).xsmall().text_color(pal.muted))
+        .child(div().min_w_0().truncate().child(attachment.name()))
+        .when(missing, |this| {
+            this.child(
+                div()
+                    .flex_shrink_0()
+                    .child(SharedString::from(t!("assistant.attach.missing"))),
+            )
+        })
+}
+
+/// 첨부의 전체 경로를 보이는 툴팁.
+fn path_tooltip(
+    attachment: &agent::Attachment,
+) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    let path = SharedString::from(attachment.path.to_string_lossy().into_owned());
+    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(path.clone()).build(window, cx)
 }
 
 /// 대화 한 줄. 내 말은 오른쪽 말풍선, 어시스턴트 말은 왼쪽 본문으로 그린다.

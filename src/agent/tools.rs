@@ -57,6 +57,8 @@ pub struct Workspace {
     /// 확장 초안(ADR-0029): 이번 답에서 고친 확장 파일(경로 → 처음 내용과 지금 내용). 디스크에는 쓰지 않고,
     /// 답이 끝나면 [`Workspace::take_drafts`]로 꺼내 확장마다 한 번 승인받는다.
     drafts: Arc<Mutex<BTreeMap<String, PendingChange>>>,
+    /// 사용자가 이 대화에 붙인 파일·폴더(ADR-0058). 라이브러리 밖이어도 절대 경로로 읽고 목록을 볼 수 있다.
+    grants: Vec<PathBuf>,
 }
 
 /// 파일을 바꾸는 도구의 계획. 사용자가 승인하면 [`Workspace::commit`]으로 쓴다.
@@ -169,7 +171,14 @@ impl Workspace {
             skills,
             extensions,
             drafts: Arc::default(),
+            grants: Vec::new(),
         }
+    }
+
+    /// 읽기를 허락한 파일·폴더(실제 경로)를 둔다.
+    pub fn with_grants(mut self, grants: Vec<PathBuf>) -> Self {
+        self.grants = grants;
+        self
     }
 
     /// 라이브러리의 확장(이름순).
@@ -214,16 +223,16 @@ impl Workspace {
                 json!({
                     "type": "object",
                     "properties": {
-                        "path": path("Path relative to the library root. Empty for the root."),
+                        "path": path("Path relative to the library root (empty for the root), or the absolute path of a folder the user attached."),
                     },
                 }),
             ),
             (
                 READ,
-                "Read one text file in the library and return its full content.",
+                "Read one text file in the library, or one the user attached, and return its full content.",
                 json!({
                     "type": "object",
-                    "properties": { "path": path("Path relative to the library root.") },
+                    "properties": { "path": path("Path relative to the library root, or the absolute path of a file the user attached (or a file in an attached folder).") },
                     "required": ["path"],
                 }),
             ),
@@ -393,8 +402,19 @@ impl Workspace {
                 None => Err("content is missing.".into()),
             },
             EDIT => parse_edits(arguments).and_then(|edits| self.plan_edit(path, &edits)),
-            LIST => return Planned::Done(output(path, "assistant.tool.listed", self.list(path))),
-            READ => return Planned::Done(output(path, "assistant.tool.read", self.read(path))),
+            LIST | READ => {
+                let (verb, result) = if name == LIST {
+                    ("assistant.tool.listed", self.list(path))
+                } else {
+                    ("assistant.tool.read", self.read(path))
+                };
+                let mut out = output(path, verb, result);
+                // 붙인 파일·폴더(ADR-0058)는 절대 경로 그대로 보인다.
+                if self.granted_path(path).is_some() {
+                    out.summary = out.summary.replace(&shown(path), path.trim());
+                }
+                return Planned::Done(out);
+            }
             _ => Err(format!("Unknown tool: {name}")),
         };
         match change {
@@ -947,6 +967,9 @@ impl Workspace {
     }
 
     fn list(&self, path: &str) -> Result<String, String> {
+        if let Some(dir) = self.granted_path(path) {
+            return list_entries(&dir, Vec::new());
+        }
         let relative = relative_path(path)?;
         // 아직 파일이 없는 확장 초안(폴더 확장의 새 폴더 포함)도 보인다.
         let drafted: Vec<String> = self
@@ -978,39 +1001,29 @@ impl Workspace {
             }
             Err(err) => return Err(err),
         };
-        if !dir.is_dir() {
-            return Err("Not a folder.".into());
+        list_entries(&dir, drafted)
+    }
+
+    /// 허락한 파일·폴더(ADR-0058) 안의 절대 경로면 그 실제 경로. 숨김 항목은 거부한다.
+    fn granted_path(&self, path: &str) -> Option<PathBuf> {
+        let path = Path::new(path.trim());
+        if !path.is_absolute() {
+            return None;
         }
-        let mut entries: Vec<String> = std::fs::read_dir(&dir)
-            .map_err(|err| err.to_string())?
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with('.') && name != GROUP_META_FILE {
-                    return None;
-                }
-                let is_dir = entry.file_type().ok()?.is_dir();
-                Some(if is_dir { format!("{name}/") } else { name })
-            })
-            .collect();
-        for name in drafted {
-            if !entries.contains(&name) {
-                entries.push(name);
-            }
-        }
-        entries.sort();
-        Ok(if entries.is_empty() {
-            "(empty)".into()
-        } else {
-            entries.join("\n")
-        })
+        let real = path.canonicalize().ok()?;
+        let grant = self.grants.iter().find(|grant| real.starts_with(grant))?;
+        let rest = real.strip_prefix(grant).ok()?;
+        (!is_hidden_path(rest)).then_some(real)
     }
 
     fn read(&self, path: &str) -> Result<String, String> {
         if let Some(draft) = self.draft(path) {
             return Ok(draft.after);
         }
-        let file = self.resolve_existing(path)?;
+        let file = match self.granted_path(path) {
+            Some(file) => file,
+            None => self.resolve_existing(path)?,
+        };
         let meta = std::fs::metadata(&file).map_err(|err| err.to_string())?;
         if !meta.is_file() {
             return Err("Not a file.".into());
@@ -1530,6 +1543,36 @@ fn relative_path(path: &str) -> Result<PathBuf, String> {
     Ok(relative)
 }
 
+/// 폴더의 항목(폴더는 `/`로 끝난다)과 아직 파일이 없는 초안(`drafted`). 숨김 항목은 뺀다.
+fn list_entries(dir: &Path, drafted: Vec<String>) -> Result<String, String> {
+    if !dir.is_dir() {
+        return Err("Not a folder.".into());
+    }
+    let mut entries: Vec<String> = std::fs::read_dir(dir)
+        .map_err(|err| err.to_string())?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') && name != GROUP_META_FILE {
+                return None;
+            }
+            let is_dir = entry.file_type().ok()?.is_dir();
+            Some(if is_dir { format!("{name}/") } else { name })
+        })
+        .collect();
+    for name in drafted {
+        if !entries.contains(&name) {
+            entries.push(name);
+        }
+    }
+    entries.sort();
+    Ok(if entries.is_empty() {
+        "(empty)".into()
+    } else {
+        entries.join("\n")
+    })
+}
+
 /// 숨김 항목이 든 경로인지. 마지막의 그룹 메타(`.hanji.toml`)는 숨김으로 치지 않는다.
 fn is_hidden_path(path: &Path) -> bool {
     let parts: Vec<_> = path.components().collect();
@@ -1611,6 +1654,39 @@ mod tests {
         assert_eq!(
             ws.call(LIST, &args(&[("path", "Projects/소설")])).text,
             ".hanji.toml\n1장.md"
+        );
+    }
+
+    #[test]
+    fn reads_attached_paths_outside_root() {
+        let (ws, _) = workspace();
+        let outside = temp_dir("agent-tools-attached");
+        std::fs::create_dir_all(outside.join("docs/.secret")).unwrap();
+        std::fs::write(outside.join("docs/a.md"), "붙인 글").unwrap();
+        std::fs::write(outside.join("docs/.secret/b.md"), "숨김").unwrap();
+        std::fs::write(outside.join("other.md"), "허락 안 함").unwrap();
+        let docs = outside.join("docs").canonicalize().unwrap();
+        let read = |ws: &Workspace, path: &Path| {
+            ws.call(READ, &args(&[("path", path.to_str().unwrap())]))
+                .text
+        };
+        // 붙이기 전에는 라이브러리 기준 경로로 보고 찾지 못한다.
+        assert!(read(&ws, &docs.join("a.md")).starts_with("Error:"));
+        let ws = ws.with_grants(vec![docs.clone()]);
+        assert_eq!(read(&ws, &docs.join("a.md")), "붙인 글");
+        assert_eq!(
+            ws.call(LIST, &args(&[("path", docs.to_str().unwrap())]))
+                .text,
+            "a.md"
+        );
+        // 허락한 폴더 밖(`..`)과 숨김 항목은 읽지 않는다.
+        assert!(read(&ws, &docs.join("../other.md")).starts_with("Error:"));
+        assert!(read(&ws, &docs.join(".secret/b.md")).starts_with("Error:"));
+        // 라이브러리 기준 경로는 그대로 읽는다.
+        assert_eq!(
+            ws.call(READ, &args(&[("path", "Projects/소설/1장.md")]))
+                .text,
+            "첫 장."
         );
     }
 

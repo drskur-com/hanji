@@ -74,11 +74,11 @@ impl Runner for Codex {
     fn run(
         self: Arc<Self>,
         turn: adapter::Turn,
-        text: String,
+        input: adapter::Input,
         cancel: oneshot::Receiver<()>,
     ) -> BoxFuture<'static, Result<PromptResponse, String>> {
         Box::pin(async move {
-            let stop = run_turn(&self, &turn, &text, cancel).await?;
+            let stop = run_turn(&self, &turn, &input, cancel).await?;
             Ok(PromptResponse::new(stop))
         })
     }
@@ -318,7 +318,7 @@ fn launch_args(config: &toml::Table) -> Vec<String> {
 async fn run_turn(
     config: &Codex,
     turn: &adapter::Turn,
-    text: &str,
+    input: &adapter::Input,
     mut cancel: oneshot::Receiver<()>,
 ) -> Result<StopReason, String> {
     let (mut child, mut rpc) = AppServer::start(config.path.clone(), &turn.cwd).await?;
@@ -344,12 +344,15 @@ async fn run_turn(
             "turn/start",
             json!({
                 "threadId": thread_id,
-                "input": [{ "type": "text", "text": text }],
+                "input": codex_input(input),
             }),
         )
         .await?;
 
-    let mut state = TurnState::default();
+    let mut state = TurnState {
+        grants: input.grants.clone(),
+        ..TurnState::default()
+    };
     let result = loop {
         let message = tokio::select! {
             message = rpc.next() => message?,
@@ -396,6 +399,8 @@ struct TurnState {
     approved: HashSet<String>,
     /// 다시 시도하지 않는 마지막 오류.
     error: Option<String>,
+    /// 사용자가 붙여 읽기를 허락한 파일·폴더(ADR-0058).
+    grants: Vec<PathBuf>,
 }
 
 impl TurnState {
@@ -408,8 +413,12 @@ impl TurnState {
     ) -> Result<Option<Value>, String> {
         match method {
             "item/commandExecution/requestApproval" => {
-                let decision = if read_only_in(&turn.cwd, &params["commandActions"])
-                    || read_only_argv(&turn.cwd, &params["proposedExecpolicyAmendment"])
+                let readable = Readable {
+                    root: &turn.cwd,
+                    grants: &self.grants,
+                };
+                let decision = if read_only_in(&readable, &params["commandActions"])
+                    || read_only_argv(&readable, &params["proposedExecpolicyAmendment"])
                 {
                     "accept"
                 } else {
@@ -422,6 +431,13 @@ impl TurnState {
                 let Some(diffs) = self.diffs(&item).await else {
                     return Ok(Some(json!({ "decision": "decline" })));
                 };
+                // 붙인 파일·폴더(ADR-0058)는 읽기만 한다. 라이브러리 밖은 묻지 않고 거절한다.
+                if !diffs
+                    .iter()
+                    .all(|diff| super::inside(&turn.cwd, &diff.path))
+                {
+                    return Ok(Some(json!({ "decision": "decline" })));
+                }
                 let title = diffs
                     .first()
                     .map(|diff| turn.relative(&diff.path.to_string_lossy()))
@@ -592,8 +608,35 @@ impl TurnState {
     }
 }
 
-/// Codex가 푼 명령이 모두 라이브러리 안을 읽기·목록·찾기만 하는지.
-fn read_only_in(root: &Path, actions: &Value) -> bool {
+/// 명령이 읽어도 되는 곳: 라이브러리와 사용자가 붙인 파일·폴더.
+struct Readable<'a> {
+    root: &'a Path,
+    grants: &'a [PathBuf],
+}
+
+impl Readable<'_> {
+    /// `path`(상대면 라이브러리 기준)를 읽어도 되는지.
+    fn allows(&self, path: &Path) -> bool {
+        super::inside(self.root, path)
+            || (path.is_absolute() && crate::agent::attach::granted(self.grants, path))
+    }
+}
+
+/// Codex에 보낼 입력: 글과 붙인 그림(파일 경로, ADR-0058).
+fn codex_input(input: &adapter::Input) -> Value {
+    let mut items = vec![json!({ "type": "text", "text": input.text })];
+    items.extend(
+        input
+            .images
+            .iter()
+            .filter_map(|image| image.path.as_ref())
+            .map(|path| json!({ "type": "localImage", "path": path })),
+    );
+    Value::Array(items)
+}
+
+/// Codex가 푼 명령이 모두 라이브러리(와 붙인 경로) 안을 읽기·목록·찾기만 하는지.
+fn read_only_in(readable: &Readable, actions: &Value) -> bool {
     let Some(actions) = actions.as_array().filter(|actions| !actions.is_empty()) else {
         return false;
     };
@@ -603,13 +646,13 @@ fn read_only_in(root: &Path, actions: &Value) -> bool {
             Some("read" | "listFiles" | "search")
         ) && action["path"]
             .as_str()
-            .is_none_or(|path| inside(root, Path::new(path)))
+            .is_none_or(|path| readable.allows(Path::new(path)))
     })
 }
 
 /// Codex가 풀지 못한 명령(`unknown`)도, 셸 없이 나눈 인자(`proposedExecpolicyAmendment`)가 읽기만 하는
 /// 프로그램이고 경로가 모두 라이브러리 안이면 허락한다. 샌드박스가 읽기 전용이라 쓰지는 못한다.
-fn read_only_argv(root: &Path, argv: &Value) -> bool {
+fn read_only_argv(readable: &Readable, argv: &Value) -> bool {
     let Some(argv) = argv
         .as_array()
         .and_then(|argv| argv.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
@@ -643,25 +686,9 @@ fn read_only_argv(root: &Path, argv: &Value) -> bool {
         },
         _ => return false,
     };
-    paths
-        .iter()
-        .all(|path| !path.starts_with('~') && !path.contains('$') && inside(root, Path::new(path)))
-}
-
-/// `path`(상대면 `root` 기준)가 `root` 안인지.
-fn inside(root: &Path, path: &Path) -> bool {
-    let path = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        root.join(path)
-    };
-    if path
-        .components()
-        .any(|part| matches!(part, std::path::Component::ParentDir))
-    {
-        return false;
-    }
-    !Path::new(&super::relative(root, &path)).is_absolute()
+    paths.iter().all(|path| {
+        !path.starts_with('~') && !path.contains('$') && readable.allows(Path::new(path))
+    })
 }
 
 /// 통합 diff(`@@ -a,b +c,d @@` 덩어리들)를 `before`에 대 고친 내용. 문맥이 맞지 않으면 `None`.
@@ -759,7 +786,10 @@ mod tests {
 
     #[test]
     fn allows_only_reads_inside_library() {
-        let root = Path::new("/lib");
+        let root = &Readable {
+            root: Path::new("/lib"),
+            grants: &[],
+        };
         let read =
             |path: &str| json!([{ "type": "read", "command": "cat", "name": "x", "path": path }]);
         assert!(read_only_in(root, &read("/lib/a.md")));
@@ -778,8 +808,48 @@ mod tests {
     }
 
     #[test]
+    fn allows_reads_of_attached_paths() {
+        let dir = std::env::temp_dir().join(format!("hanji-codex-grant-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::write(dir.join("docs/a.md"), "a").unwrap();
+        std::fs::write(dir.join("b.md"), "b").unwrap();
+        let grants = [dir.join("docs").canonicalize().unwrap()];
+        let readable = Readable {
+            root: Path::new("/lib"),
+            grants: &grants,
+        };
+        let a = dir.join("docs/a.md");
+        assert!(read_only_argv(&readable, &json!(["cat", a])));
+        assert!(!read_only_argv(
+            &readable,
+            &json!(["cat", dir.join("b.md")])
+        ));
+        assert!(!read_only_argv(
+            &readable,
+            &json!(["cat", dir.join("docs/../b.md")])
+        ));
+        let input = codex_input(&adapter::Input {
+            text: "봐 줘".into(),
+            images: vec![adapter::Image {
+                data: String::new(),
+                mime: "image/png".into(),
+                path: Some("/pics/a.png".into()),
+            }],
+            grants: Vec::new(),
+        });
+        assert_eq!(
+            input[1],
+            json!({ "type": "localImage", "path": "/pics/a.png" })
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn allows_simple_read_commands() {
-        let root = Path::new("/lib");
+        let root = &Readable {
+            root: Path::new("/lib"),
+            grants: &[],
+        };
         let argv = |args: &[&str]| json!(args);
         assert!(read_only_argv(
             root,

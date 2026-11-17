@@ -62,6 +62,13 @@ pub fn display_name(id: &str) -> Option<String> {
 /// `claude`에 줄 파일 도구.
 const TOOLS: &str = "Read,Edit,Write,Glob,Grep";
 
+/// 붙인 파일(ADR-0058)이 이 크기 이하의 텍스트면 내용을 메시지에 넣는다. 크면 상위 폴더를 `--add-dir`로 연다.
+const INLINE_FILE_BYTES: u64 = 200 * 1024;
+
+/// 라이브러리 밖에 쓰려 할 때 돌려줄 글.
+const OUTSIDE_LIBRARY: &str =
+    "Files outside the library are read-only in Hanji. Do not write there.";
+
 /// 승인 카드에서 거절했을 때 Claude Code에 돌려줄 글.
 const DECLINED: &str = "The user declined this change. Do not retry it unless they ask; you may ask what they would like instead.";
 
@@ -167,7 +174,7 @@ impl Runner for ClaudeCode {
     fn run(
         self: Arc<Self>,
         turn: adapter::Turn,
-        text: String,
+        input: adapter::Input,
         cancel: oneshot::Receiver<()>,
     ) -> BoxFuture<'static, Result<PromptResponse, String>> {
         Box::pin(async move {
@@ -175,7 +182,7 @@ impl Runner for ClaudeCode {
                 config: &self,
                 turn: &turn,
             };
-            let (stop, resolved) = run.run(&text, cancel).await?;
+            let (stop, resolved) = run.run(input, cancel).await?;
             let mut response = PromptResponse::new(stop);
             if let Some(resolved) = resolved {
                 response = response.meta(serde_json::Map::from_iter([(
@@ -201,16 +208,15 @@ impl Run<'_> {
     /// 말 한 번을 돌린다. 끝난 까닭과, `claude`가 알린 실제 모델(`init`)을 돌려준다.
     async fn run(
         &self,
-        text: &str,
+        input: adapter::Input,
         cancel: oneshot::Receiver<()>,
     ) -> Result<(StopReason, Option<String>), String> {
         let override_path = self.config.path.clone();
-        let (binary, auth) = tokio::task::spawn_blocking(move || {
-            let binary = crate::agent_cli::find(
-                crate::agent_cli::Cli::ClaudeCode,
-                override_path.as_deref(),
-            );
-            (binary, auth_settings())
+        let grants = input.grants.clone();
+        let (binary, auth, attached) = tokio::task::spawn_blocking(move || {
+            let binary =
+                crate::agent_cli::find(crate::agent_cli::Cli::ClaudeCode, override_path.as_deref());
+            (binary, auth_settings(), Attached::read(&grants))
         })
         .await
         .unwrap_or_default();
@@ -218,29 +224,31 @@ impl Run<'_> {
             .ok_or_else(|| t!("assistant.error.cli_missing", name = "Claude Code").to_string())?;
 
         let mut command = std::process::Command::new(&binary);
-        command
-            .args([
-                "-p",
-                "--input-format",
-                "stream-json",
-                "--output-format",
-                "stream-json",
-                "--include-partial-messages",
-                "--verbose",
-                "--restricted",
-                "--strict-mcp-config",
-                "--no-session-persistence",
-                "--permission-prompt-tool",
-                "stdio",
-                "--tools",
-                TOOLS,
-                "--model",
-                &self.config.model,
-                "--system-prompt",
-                &self.config.system,
-            ]);
+        command.args([
+            "-p",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--include-partial-messages",
+            "--verbose",
+            "--restricted",
+            "--strict-mcp-config",
+            "--no-session-persistence",
+            "--permission-prompt-tool",
+            "stdio",
+            "--tools",
+            TOOLS,
+            "--model",
+            &self.config.model,
+            "--system-prompt",
+            &self.config.system,
+        ]);
         if let Some(auth) = &auth {
             command.args(["--settings", auth]);
+        }
+        for dir in &attached.dirs {
+            command.arg("--add-dir").arg(dir);
         }
         command
             .current_dir(&self.turn.cwd)
@@ -263,9 +271,21 @@ impl Run<'_> {
             text
         });
 
+        let mut text = input.text;
+        for file in &attached.inline {
+            text.push_str("\n\n");
+            text.push_str(file);
+        }
+        let mut content = vec![json!({ "type": "text", "text": text })];
+        content.extend(input.images.iter().map(|image| {
+            json!({
+                "type": "image",
+                "source": { "type": "base64", "media_type": image.mime, "data": image.data },
+            })
+        }));
         let message = json!({
             "type": "user",
-            "message": { "role": "user", "content": text },
+            "message": { "role": "user", "content": content },
         });
         write_line(&mut stdin, &message).await?;
 
@@ -427,6 +447,10 @@ impl Run<'_> {
         let Some(diff) = planned_diff(request["tool_name"].as_str(), &input).await else {
             return Ok(deny(request_id, NOT_ALLOWED));
         };
+        // `--add-dir`로 연 붙인 폴더는 읽기만 한다.
+        if !super::inside(&self.turn.cwd, &diff.path) {
+            return Ok(deny(request_id, OUTSIDE_LIBRARY));
+        }
         let title = self.relative(&diff.path.to_string_lossy());
         let tool_call = ToolCallUpdate::new(
             ToolCallId::new(tool_use_id.as_str()),
@@ -454,6 +478,49 @@ impl Run<'_> {
     /// 화면에 보일 경로: 라이브러리 루트 기준.
     fn relative(&self, path: &str) -> String {
         self.turn.relative(path)
+    }
+}
+
+/// 붙인 파일·폴더(ADR-0058)를 Claude Code에 넘기는 방법: 작은 텍스트 파일은 내용을 넣고, 폴더와 큰 파일(그 상위
+/// 폴더)은 `--add-dir`로 연다. 파일 하나 때문에 그 폴더 전체를 열지 않으려는 것이다.
+#[derive(Debug, Default)]
+struct Attached {
+    dirs: Vec<PathBuf>,
+    /// 메시지 끝에 붙일 파일 내용(`<attached_file>`).
+    inline: Vec<String>,
+}
+
+impl Attached {
+    fn read(grants: &[PathBuf]) -> Self {
+        let mut attached = Self::default();
+        let mut open = |dir: &std::path::Path| {
+            if !attached.dirs.iter().any(|known| dir.starts_with(known)) {
+                attached.dirs.retain(|known| !known.starts_with(dir));
+                attached.dirs.push(dir.to_path_buf());
+            }
+        };
+        let mut inline = Vec::new();
+        for grant in grants {
+            if grant.is_dir() {
+                open(grant);
+                continue;
+            }
+            let small = std::fs::metadata(grant).is_ok_and(|meta| meta.len() <= INLINE_FILE_BYTES);
+            match small.then(|| std::fs::read_to_string(grant).ok()).flatten() {
+                Some(text) => inline.push(format!(
+                    "<attached_file path=\"{}\">\n{}\n</attached_file>",
+                    grant.display(),
+                    text.replace("</attached_file", "&lt;/attached_file")
+                )),
+                None => {
+                    if let Some(parent) = grant.parent() {
+                        open(parent);
+                    }
+                }
+            }
+        }
+        attached.inline = inline;
+        attached
     }
 }
 
@@ -578,6 +645,31 @@ mod tests {
             pick_auth(&json!({ "theme": "dark", "env": { "EDITOR": "vim" } })),
             None
         );
+    }
+
+    #[test]
+    fn attached_files_inline_or_open_folder() {
+        let dir =
+            std::env::temp_dir().join(format!("hanji-claude-attached-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("docs/sub")).unwrap();
+        std::fs::create_dir_all(dir.join("big")).unwrap();
+        std::fs::write(dir.join("small.md"), "작은 글").unwrap();
+        std::fs::write(
+            dir.join("big/large.txt"),
+            "x".repeat(INLINE_FILE_BYTES as usize + 1),
+        )
+        .unwrap();
+        let attached = Attached::read(&[
+            dir.join("small.md"),
+            dir.join("docs/sub"),
+            dir.join("docs"),
+            dir.join("big/large.txt"),
+        ]);
+        assert_eq!(attached.inline.len(), 1);
+        assert!(attached.inline[0].contains("작은 글"));
+        // 안쪽 폴더는 바깥 폴더에 묶이고, 큰 파일은 상위 폴더를 연다.
+        assert_eq!(attached.dirs, [dir.join("docs"), dir.join("big")]);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
