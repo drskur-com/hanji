@@ -434,15 +434,16 @@ impl Conversation {
     /// 대화(이번 말이 마지막)를 돌려준다. 답을 받는 중이거나 빈 말이면 아무것도 하지 않고 `None`.
     #[cfg(test)]
     pub fn send(&mut self, text: &str, sheet: Option<&str>) -> Option<Vec<Turn>> {
-        self.send_with(text, sheet, Vec::new())
+        self.send_with(text, sheet, Vec::new(), None)
     }
 
-    /// [`Self::send`]에 첨부를 붙인다. 첨부가 있으면 글이 비어도 보낸다.
+    /// [`Self::send`]에 첨부를 붙인다. 첨부가 있으면 글이 비어도 보낸다. `dir`은 대화의 첨부 폴더(그림 사본)다.
     pub fn send_with(
         &mut self,
         text: &str,
         sheet: Option<&str>,
         attachments: Vec<Attachment>,
+        dir: Option<&std::path::Path>,
     ) -> Option<Vec<Turn>> {
         let text = text.trim();
         if (text.is_empty() && attachments.is_empty()) || self.streaming {
@@ -455,7 +456,7 @@ impl Conversation {
             attachments,
             ..Turn::default()
         });
-        let turns = request_turns(&self.turns);
+        let turns = request_turns(&self.turns, dir);
         self.turns.push(Turn::default());
         self.error = None;
         self.streaming = true;
@@ -596,22 +597,12 @@ impl Conversation {
 
 /// 모델에 보낼 대화. 비어 있는 답(멈춘 답)은 빼고, 그래서 같은 쪽 말이 잇달으면 한 마디로
 /// 합친다(Bedrock Converse는 사용자와 어시스턴트가 번갈아 말해야 받는다).
-fn request_turns(turns: &[Turn]) -> Vec<Turn> {
-    // 다시 보낼 그림: 뒤에서부터 [`attach::MAX_IMAGES`]장(말 번호, 첨부 번호).
-    let shown: HashSet<(usize, usize)> = turns
+fn request_turns(turns: &[Turn], dir: Option<&std::path::Path>) -> Vec<Turn> {
+    // 이번에 보내는 말(마지막 답 뒤의 사용자 말들). 그 그림만 그림으로 보내고, 앞의 그림은 경로로 알린다(ADR-0058).
+    let fresh_from = turns
         .iter()
-        .enumerate()
-        .rev()
-        .flat_map(|(turn_ix, turn)| {
-            turn.attachments
-                .iter()
-                .enumerate()
-                .rev()
-                .filter(|(_, attachment)| attachment.kind == AttachmentKind::Image)
-                .map(move |(ix, _)| (turn_ix, ix))
-        })
-        .take(attach::MAX_IMAGES)
-        .collect();
+        .rposition(|turn| !turn.user && !(turn.text.trim().is_empty() && turn.activity.is_empty()))
+        .map_or(0, |ix| ix + 1);
     let mut merged: Vec<Turn> = Vec::new();
     // 직전 사용자 말의 시트. 시트가 바뀌었으면 사용자 말 앞에 적는다(앞의 말은 다른 시트를 두고 한 것이다).
     let mut sheet: Option<Option<&str>> = None;
@@ -644,17 +635,9 @@ fn request_turns(turns: &[Turn]) -> Vec<Turn> {
                 _ => None,
             })
             .collect();
-        // 첨부는 글로 알리고, 다시 보낼 그림과 파일·폴더만 남긴다(모델 호출 쪽이 그림을 붙이고 경로를 허락한다).
-        let attached = attach::note(&turn.attachments, |ix| shown.contains(&(turn_ix, ix)));
-        let attachments: Vec<Attachment> = turn
-            .attachments
-            .iter()
-            .enumerate()
-            .filter(|(ix, attachment)| {
-                attachment.kind != AttachmentKind::Image || shown.contains(&(turn_ix, *ix))
-            })
-            .map(|(_, attachment)| attachment.clone())
-            .collect();
+        // 첨부는 글로 알린다. 모델 호출 쪽이 남은 그림을 붙이고 파일·폴더를 허락한다.
+        let (attachments, attached) =
+            attach::for_request(&turn.attachments, turn_ix >= fresh_from, dir);
         let text = moved
             .iter()
             .map(String::as_str)
@@ -894,38 +877,50 @@ mod tests {
     }
 
     #[test]
-    fn resends_only_recent_images_and_keeps_grants() {
+    fn sends_images_once_then_points_to_the_copy() {
         let image = |name: &str| Attachment {
             kind: AttachmentKind::Image,
             path: format!("/pics/{name}").into(),
-            stored: None,
+            stored: Some(name.into()),
         };
         let folder = Attachment {
             kind: AttachmentKind::Folder,
             path: "/docs".into(),
             stored: None,
         };
+        let dir = std::env::temp_dir().join(format!("hanji-send-images-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("old.png"), "png").unwrap();
         let mut chat = Conversation::default();
-        let first: Vec<_> = (0..attach::MAX_IMAGES)
-            .map(|ix| image(&format!("{ix}.png")))
-            .chain([folder.clone()])
-            .collect();
-        // 글 없이 첨부만 보내도 된다.
-        chat.send_with("", None, first).unwrap();
+        // 글 없이 첨부만 보내도 되고, 이번 말의 그림은 그림으로 보낸다.
+        let sent = chat
+            .send_with("", None, vec![image("old.png"), folder.clone()], Some(&dir))
+            .unwrap();
+        assert_eq!(sent[0].attachments, [image("old.png"), folder.clone()]);
         chat.apply(ChatEvent::Text("봤어요".into()));
         chat.apply(ChatEvent::Done);
         let sent = chat
-            .send_with("이것도", None, vec![image("new.png")])
+            .send_with("이것도", None, vec![image("new.png")], Some(&dir))
             .unwrap();
-        // 가장 오래된 그림 한 장은 이름만 알리고 빼며, 폴더는 남는다.
-        assert!(sent[0].text.contains("- image 0.png (no longer attached"));
-        assert!(sent[0].text.contains("- folder /docs/"));
-        assert_eq!(sent[0].attachments.len(), attach::MAX_IMAGES);
-        assert!(sent[0].attachments.contains(&folder));
+        // 앞의 그림은 사본을 읽을 파일로 알리고, 폴더는 남는다.
+        let copy = dir.join("old.png");
+        assert!(sent[0].text.contains(&format!("read {}", copy.display())));
+        assert_eq!(
+            sent[0].attachments,
+            [
+                Attachment {
+                    kind: AttachmentKind::File,
+                    path: copy,
+                    stored: None,
+                },
+                folder
+            ]
+        );
         assert_eq!(sent[2].attachments, [image("new.png")]);
         // 실패하면 첨부도 함께 돌려준다.
         let back = chat.apply(ChatEvent::Failed("끊김".into())).unwrap();
         assert_eq!(back.attachments, [image("new.png")]);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

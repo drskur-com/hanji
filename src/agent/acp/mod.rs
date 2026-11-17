@@ -535,7 +535,9 @@ mod live {
         let mut request = request;
         let mut chat = crate::agent::Conversation::default();
         let turn = request.turns.pop().unwrap();
-        request.turns = chat.send_with(&turn.text, None, turn.attachments).unwrap();
+        request.turns = chat
+            .send_with(&turn.text, None, turn.attachments, None)
+            .unwrap();
         // 패널처럼 붙인 파일·폴더를 내장 도구에 허락한다.
         request.workspace = request
             .workspace
@@ -561,6 +563,106 @@ mod live {
         assert!(upper.contains("PELICAN"), "{text}");
         assert!(upper.contains("MARMALADE"), "{text}");
         assert!(upper.contains("RED"), "{text}");
+    }
+
+    /// 앞의 말에 붙인 그림을 다음 말에서 사본 경로로 다시 읽는지 본다(ADR-0058).
+    fn image_follow_up(backend: crate::agent::Backend, tools: Option<crate::agent::AgentTools>) {
+        let base = std::env::temp_dir().join(format!(
+            "hanji-acp-follow-{}-{}",
+            backend.models_key().replace('/', "-"),
+            std::process::id()
+        ));
+        let root = base.join("library");
+        let store = base.join("store");
+        std::fs::create_dir_all(&root).unwrap();
+        let png = base.join("picture.png");
+        image::RgbImage::from_pixel(64, 64, image::Rgb([20, 160, 40]))
+            .save(&png)
+            .unwrap();
+        let mut picture = crate::agent::Attachment::from_path(&png).unwrap();
+        picture.stored = Some(crate::agent::store_image(&png, &store).unwrap());
+        // 원본이 사라져도 사본을 읽는다.
+        std::fs::remove_file(&png).unwrap();
+        let workspace = crate::agent::Workspace::new(&root);
+        let system = match tools {
+            Some(tools) => crate::agent::agent_system_prompt(None, tools, workspace.skills()),
+            None => crate::agent::system_prompt(None, true, workspace.skills(), &[]),
+        };
+        let mut chat = crate::agent::Conversation::default();
+        let mut ask = |text: &str, attachments: Vec<crate::agent::Attachment>| {
+            let turns = chat
+                .send_with(text, None, attachments, Some(&store))
+                .unwrap();
+            let request = crate::agent::ChatRequest {
+                backend: backend.clone(),
+                workspace: Some(
+                    crate::agent::Workspace::new(&root).with_grants(crate::agent::grants(&turns)),
+                ),
+                system: system.clone(),
+                turns,
+                allowed_sites: Default::default(),
+                attachments: Some(store.clone()),
+            };
+            let mut events = crate::agent::stream(request);
+            futures::executor::block_on(async {
+                while let Some(event) = events.next().await {
+                    if let ChatEvent::Failed(err) = &event {
+                        panic!("failed: {err}");
+                    }
+                    if let ChatEvent::Tool(line) = &event {
+                        eprintln!("TOOL {line}");
+                    }
+                    let done = matches!(event, ChatEvent::Done);
+                    chat.apply(event);
+                    if done {
+                        break;
+                    }
+                }
+            });
+            let reply = chat.turns().last().unwrap().text.clone();
+            eprintln!("REPLY {reply}");
+            reply
+        };
+        ask(
+            "I attached a picture for later. Reply only with OK.",
+            vec![picture],
+        );
+        let reply = ask(
+            "Look at the picture I attached earlier again. What is its main color? Reply with the color only.",
+            Vec::new(),
+        );
+        std::fs::remove_dir_all(&base).ok();
+        assert!(reply.to_uppercase().contains("GREEN"), "{reply}");
+    }
+
+    /// `cargo test --bin hanji image_follow_up_ -- --ignored --nocapture --test-threads=1`.
+    #[test]
+    #[ignore]
+    fn image_follow_up_claude_code() {
+        image_follow_up(
+            crate::agent::Backend::ClaudeCode {
+                model: "haiku".into(),
+            },
+            Some(crate::agent::AgentTools::ClaudeCode),
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn image_follow_up_codex() {
+        image_follow_up(
+            crate::agent::Backend::Codex {
+                model: String::new(),
+            },
+            Some(crate::agent::AgentTools::Codex),
+        );
+    }
+
+    /// `WRITER_AI_PROFILE=<프로필>`이 든다.
+    #[test]
+    #[ignore]
+    fn image_follow_up_builtin() {
+        image_follow_up(crate::agent::bedrock::tests::live_backend(), None);
     }
 
     /// `cargo test --bin hanji claude_code_attachments -- --ignored --nocapture`.

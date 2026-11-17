@@ -177,7 +177,11 @@ impl Workspace {
 
     /// 읽기를 허락한 파일·폴더(실제 경로)를 둔다.
     pub fn with_grants(mut self, grants: Vec<PathBuf>) -> Self {
-        self.grants = grants;
+        // 요청 경로도 실제 경로로 견주므로 맞춘다(macOS의 `/var` → `/private/var` 등).
+        self.grants = grants
+            .into_iter()
+            .map(|grant| grant.canonicalize().unwrap_or(grant))
+            .collect();
         self
     }
 
@@ -1002,6 +1006,22 @@ impl Workspace {
             Err(err) => return Err(err),
         };
         list_entries(&dir, drafted)
+    }
+
+    /// `read_file`이 허락한 그림 파일(ADR-0058, 앞의 말에 붙인 그림의 사본 등)을 읽으려 하면 그 파일. 모델 호출
+    /// 쪽이 글 대신 그림으로 돌려준다.
+    pub fn granted_image(&self, tool: &str, arguments: &Map<String, Value>) -> Option<PathBuf> {
+        if tool != READ {
+            return None;
+        }
+        let file = self.granted_path(arguments.get("path")?.as_str()?)?;
+        let image = file
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                ["png", "jpg", "jpeg", "gif", "webp"].contains(&ext.to_ascii_lowercase().as_str())
+            });
+        (image && file.is_file()).then_some(file)
     }
 
     /// 허락한 파일·폴더(ADR-0058) 안의 절대 경로면 그 실제 경로. 숨김 항목은 거부한다.

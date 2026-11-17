@@ -616,6 +616,24 @@ async fn run(request: &ChatRequest, tx: &mpsc::UnboundedSender<ChatEvent>) -> Re
                 after_results.extend(image);
                 continue;
             }
+            // 허락한 그림 파일(앞의 말에 붙인 그림, ADR-0058)은 그림으로 돌려준다.
+            if let Some(image) = workspace
+                .granted_image(&call.function.name, &call.function.arguments)
+                .and_then(|file| super::attach::load_image(&file).map(|image| (file, image)))
+            {
+                let (file, image) = image;
+                let summary = format!("{} · {}", t!("assistant.tool.read"), file.display());
+                if tx.unbounded_send(ChatEvent::Tool(summary)).is_err() {
+                    return Ok(());
+                }
+                let mut content = vec![ToolResultContent::text(format!(
+                    "The image {} is attached.",
+                    file.display()
+                ))];
+                after_results.extend(attach(&mut content, fetched_image(image), tool_images));
+                results.push(call.result(content));
+                continue;
+            }
             if call.function.name == model_tool::SET_MODEL {
                 let outcome = model_tool::run(backend, &call.function.arguments).await;
                 let summary = match &outcome.model {

@@ -822,10 +822,12 @@ impl HanjiApp {
         let attachments_dir = self.store_assistant_images(window, cx);
         let chat = &mut self.assistant_chat;
         let attached = std::mem::take(&mut chat.attached);
-        let Some(turns) = chat
-            .conversation
-            .send_with(&text, sheet.as_deref(), attached)
-        else {
+        let Some(turns) = chat.conversation.send_with(
+            &text,
+            sheet.as_deref(),
+            attached,
+            attachments_dir.as_deref(),
+        ) else {
             return;
         };
         // 이 대화에 붙인 파일·폴더는 읽기를 허락한다.

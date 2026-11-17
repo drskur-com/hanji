@@ -1,7 +1,8 @@
 //! 사용자가 어시스턴트 창에 끌어다 놓은 첨부(ADR-0058): 그림·파일·폴더.
 //!
-//! - 그림은 보낼 때 모델이 받는 크기로 줄여 대화 기록 옆 첨부 폴더(`attachments/<대화 id>/<해시>.<확장자>`)에 쓰고,
-//!   말마다 최근 [`MAX_IMAGES`]장을 다시 보낸다. 대화 내역의 썸네일도 그 파일을 그린다.
+//! - 그림은 보낼 때 모델이 받는 크기로 줄여 대화 기록 옆 첨부 폴더(`attachments/<대화 id>/<해시>.<확장자>`)에 쓴다.
+//!   붙인 말에서만 그림으로 보내고, 그 뒤의 말에서는 그 파일의 경로를 알려 다시 보고 싶으면 읽게 한다(읽기를
+//!   허락한다). 대화 내역의 썸네일도 그 파일을 그린다.
 //! - 파일·폴더는 경로만 적는다. 그 대화에서는 읽기 전용으로 허락한 것으로 보고([`grants`]) 모델에 경로를 알린다.
 
 use std::hash::{Hash as _, Hasher as _};
@@ -11,9 +12,6 @@ use serde::{Deserialize, Serialize};
 
 use super::Turn;
 use super::web::{self, FetchedImage, ImageFormat};
-
-/// 말마다 다시 보내는 그림 수. 그보다 앞의 그림은 이름만 알린다.
-pub const MAX_IMAGES: usize = 5;
 
 /// 첨부 하나.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,34 +134,69 @@ pub fn granted(grants: &[PathBuf], path: &Path) -> bool {
     let Ok(path) = path.canonicalize() else {
         return false;
     };
-    grants.iter().any(|grant| path.starts_with(grant))
+    grants.iter().any(|grant| {
+        path.starts_with(grant)
+            || grant
+                .canonicalize()
+                .is_ok_and(|grant| path.starts_with(grant))
+    })
 }
 
-/// 사용자 말 끝에 붙여 모델에 알리는 글. `shown`은 그림을 이번에 함께 보내는지(최근 [`MAX_IMAGES`]장).
-pub(super) fn note(attachments: &[Attachment], shown: impl Fn(usize) -> bool) -> Option<String> {
+/// 모델에 보낼 첨부와 사용자 말 끝에 붙일 알림 글. `fresh`면 이번에 보내는 말의 첨부라 그림을 그림으로 보낸다.
+/// 앞의 말에 붙인 그림은 그 파일(`dir`의 사본, 없으면 원래 파일)을 읽기 허락할 파일로 바꾸고 경로를 알린다.
+pub(super) fn for_request(
+    attachments: &[Attachment],
+    fresh: bool,
+    dir: Option<&Path>,
+) -> (Vec<Attachment>, Option<String>) {
+    let mut kept = Vec::new();
     let mut lines = Vec::new();
-    for (ix, attachment) in attachments.iter().enumerate() {
+    for attachment in attachments {
         let path = attachment.path.to_string_lossy();
-        lines.push(match attachment.kind {
-            AttachmentKind::Image if shown(ix) => {
-                format!("- image {} (attached as an image)", attachment.name())
+        match attachment.kind {
+            AttachmentKind::Image if fresh => {
+                lines.push(format!(
+                    "- image {} (attached as an image)",
+                    attachment.name()
+                ));
+                kept.push(attachment.clone());
             }
-            AttachmentKind::Image => format!(
-                "- image {} (no longer attached; only the most recent images are sent)",
-                attachment.name()
-            ),
-            AttachmentKind::File => format!("- file {path}"),
-            AttachmentKind::Folder => format!("- folder {path}/"),
-        });
+            AttachmentKind::Image => match attachment.image_file(dir) {
+                Some(file) => {
+                    lines.push(format!(
+                        "- image {} (shown when it was attached; to look at it again, read {})",
+                        attachment.name(),
+                        file.display()
+                    ));
+                    kept.push(Attachment {
+                        kind: AttachmentKind::File,
+                        path: file,
+                        stored: None,
+                    });
+                }
+                None => lines.push(format!(
+                    "- image {} (shown when it was attached; no longer available)",
+                    attachment.name()
+                )),
+            },
+            AttachmentKind::File => {
+                lines.push(format!("- file {path}"));
+                kept.push(attachment.clone());
+            }
+            AttachmentKind::Folder => {
+                lines.push(format!("- folder {path}/"));
+                kept.push(attachment.clone());
+            }
+        }
     }
-    if lines.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "[The user attached the following. Files and folders are given as absolute paths you may read \
+    let note = (!lines.is_empty()).then(|| {
+        format!(
+            "[The user attached the following. Files and folders are given as absolute paths you may read \
 (read-only; do not change them):\n{}]",
-        lines.join("\n")
-    ))
+            lines.join("\n")
+        )
+    });
+    (kept, note)
 }
 
 #[cfg(test)]
@@ -200,9 +233,19 @@ mod tests {
         assert!(granted(&allowed, &dir.join("folder/../a.md")));
         assert!(!granted(&allowed, &png));
 
-        let note = note(&turns[0].attachments, |_| true).unwrap();
+        let (kept, note) = for_request(&turns[0].attachments, true, None);
+        let note = note.unwrap();
         assert!(note.contains(&format!("- folder {}/", folder.path.display())));
         assert!(note.contains("- image p.PNG (attached as an image)"));
+        assert!(kept.contains(&picture));
+        // 앞의 말의 그림은 읽을 파일로 바꾸고 경로를 알린다.
+        let (kept, note) = for_request(std::slice::from_ref(&picture), false, None);
+        assert_eq!(kept[0].kind, AttachmentKind::File);
+        assert_eq!(kept[0].path, picture.path);
+        assert!(
+            note.unwrap()
+                .contains(&format!("read {}", picture.path.display()))
+        );
 
         // 그림은 줄여 해시 이름으로 쓰고, 같은 그림은 한 벌만 남는다.
         let store = dir.join("store");
